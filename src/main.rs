@@ -14,7 +14,12 @@ use syntect::highlighting::{Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::{LinesWithEndings, as_24_bit_terminal_escaped};
 
-/// 类似 ls 命令的 Rust 实现
+/// **功能**：
+/// 1. 列出目录内容：支持彩色突出显示不同文件/文件夹类型，支持按大小、修改时间等排序
+/// 2. 搜索文件、文件夹和文件内容：支持正则表达式
+/// 3. 合并文本文件
+/// 4. 打开文本文件并高亮显示前 n 行
+/// 5. 批量重命名：支持正则表达式、多种高级模板匹配
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {

@@ -25,7 +25,6 @@
 
 // #muchpdf(read("1.pdf", encoding: none))
 #title[Rust课程：大作业需求收集]
-#title[陈伟宁 22330007]
 
 
 #ctitle()[
