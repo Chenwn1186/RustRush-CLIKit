@@ -1,0 +1,235 @@
+use colored::Colorize;
+// use regex::Regex;
+use crate::utils::utils::get_extension;
+use atty::Stream;
+use fancy_regex::Regex;
+use std::fs;
+use std::io::{self, BufRead};
+use std::path::Path;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Style, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::as_24_bit_terminal_escaped;
+
+pub fn search_command(
+    paths: Vec<String>,
+    keyword: String,
+    search_content: bool,
+    regex: bool,
+    ignore_case: bool,
+    recursive: bool,
+) {
+    // 检测是否有管道输入（标准输入非终端时视为管道）
+    let has_pipe_input = !atty::is(Stream::Stdin);
+    let paths_to_process = if has_pipe_input {
+        // 从管道读取路径（每行一个路径）
+        let stdin = io::stdin().lock();
+        stdin
+            .lines()
+            .filter_map(|line| line.ok()) // 忽略读取失败的行
+            .collect()
+    } else {
+        // 无管道时使用命令行传入的路径
+        paths
+    };
+
+    // let first_content = match fs::read(&paths_to_process[0]) {
+    //     Ok(content) => String::from_utf8_lossy(&content).to_string(),
+    //     Err(_) => String::new(),
+    // };
+    if keyword.len() < 20 {
+        println!(
+            "Searching for '{}' in {} . regex: {}. ignore_case: {} . recursive: {}",
+            keyword,
+            paths_to_process.join(", "),
+            regex,
+            ignore_case,
+            recursive
+        );
+    }
+
+    // 处理最终路径列表（管道路径或命令行路径）
+    for p in paths_to_process {
+        let path = Path::new(&p);
+        search_and_highlight(
+            path,
+            &keyword,
+            search_content,
+            regex,
+            ignore_case,
+            recursive,
+            true, // 初始调用时匹配文件名
+        );
+    }
+}
+
+/// 统一处理文件/目录的搜索与高亮
+fn search_and_highlight(
+    path: &Path,
+    keyword: &str,
+    search_content: bool,
+    regex: bool,
+    ignore_case: bool,
+    recursive: bool,
+    match_filename: bool,
+) {
+    let paths_to_search = match fs::read_dir(path) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .collect(),
+        Err(_) => {
+            // 处理文件搜索
+            if path.is_file() {
+                vec![path.to_path_buf()]
+            } else {
+                vec![]
+            }
+        }
+    };
+
+    for p in paths_to_search {
+        // 1. 处理文件名匹配逻辑
+        if match_filename {
+            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                // 调用高亮函数，同时获取匹配状态和高亮结果
+                let (name_matched, highlighted_name) =
+                    highlight_keyword(name, keyword, ignore_case, "", regex);
+                if name_matched {
+                    let prefix = if p.is_dir() { "- " } else { "* " };
+                    println!("{}{}", prefix, p.with_file_name(highlighted_name).display());
+                }
+                if recursive && p.is_dir() {
+                    // 递归搜索子目录
+                    search_and_highlight(
+                        &p,
+                        keyword,
+                        search_content,
+                        regex,
+                        ignore_case,
+                        recursive,
+                        false, // 递归调用时不再匹配文件名
+                    );
+                }
+            }
+        }
+
+        // 2. 处理文件内容搜索（仅当是文件且需要搜索内容时）
+        if p.is_file() && search_content {
+            if let Ok(content) = fs::read_to_string(&p) {
+                let ext = get_extension(&p);
+                for (line_num, line) in content.lines().enumerate() {
+                    // 调用高亮函数，同时获取匹配状态和高亮结果
+                    let (line_matched, highlighted_line) =
+                        highlight_keyword(line, keyword, ignore_case, &ext, regex);
+                    if line_matched {
+                        println!("{}:{} - {}", p.display(), line_num + 1, highlighted_line);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 合并搜索与高亮逻辑，返回（是否匹配，高亮后的字符串）
+fn highlight_keyword(
+    line: &str,
+    keyword: &str,
+    ignore_case: bool,
+    ext: &str,
+    regex: bool,
+) -> (bool, String) {
+    // 加载默认的语法集和主题集
+    let ps = SyntaxSet::load_defaults_newlines();
+    let ts = ThemeSet::load_defaults();
+    let mut is_highlight = true;
+
+    // 根据文件扩展名查找对应的语法，找不到时标记不高亮
+    let syntax = match ps.find_syntax_by_extension(ext) {
+        Some(s) => s,
+        None => {
+            is_highlight = false;
+            // 回退到纯文本语法（实际不会应用复杂高亮）
+            ps.find_syntax_plain_text()
+        }
+    };
+
+    // 创建 HighlightLines 实例（即使不高亮也需要实例，但实际不会应用复杂高亮）
+    let mut highlighter = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
+
+    let mut highlighted = String::new();
+    let mut last_index = 0;
+    let mut has_match = false;
+
+    if regex {
+        let pattern = if ignore_case {
+            Regex::new(&format!("(?i){}", keyword)).unwrap_or_else(|_| Regex::new("").unwrap())
+        } else {
+            Regex::new(keyword).unwrap_or_else(|_| Regex::new("").unwrap())
+        };
+
+        for mat in pattern.find_iter(line) {
+            let mat = mat.expect("Failed to get match");
+            let start = mat.start();
+            let end = mat.end();
+
+            // 处理未匹配部分（根据 is_highlight 决定是否语法高亮）
+            let unmatched_part = &line[last_index..start];
+            if is_highlight {
+                let unmatched_ranges: Vec<(Style, &str)> = highlighter
+                    .highlight_line(unmatched_part, &ps)
+                    .unwrap_or_default();
+                highlighted.push_str(&as_24_bit_terminal_escaped(&unmatched_ranges[..], true));
+            } else {
+                highlighted.push_str(unmatched_part); // 无语法高亮时直接拼接原始文本
+            }
+
+            // 处理匹配部分（始终保留黄色背景高亮）
+            let matched_part = &line[start..end];
+            highlighted.push_str(&matched_part.on_yellow().to_string());
+            last_index = end;
+            has_match = true;
+        }
+    } else {
+        let (search_line, search_keyword) = if ignore_case {
+            (line.to_lowercase(), keyword.to_lowercase())
+        } else {
+            (line.to_string(), keyword.to_string())
+        };
+
+        while let Some(start) = search_line[last_index..].find(&search_keyword) {
+            let start = last_index + start;
+            let end = start + keyword.len();
+
+            // 处理未匹配部分（根据 is_highlight 决定是否语法高亮）
+            let unmatched_part = &line[last_index..start];
+            if is_highlight {
+                let unmatched_ranges: Vec<(Style, &str)> = highlighter
+                    .highlight_line(unmatched_part, &ps)
+                    .unwrap_or_default();
+                highlighted.push_str(&as_24_bit_terminal_escaped(&unmatched_ranges[..], true));
+            } else {
+                highlighted.push_str(unmatched_part); // 无语法高亮时直接拼接原始文本
+            }
+
+            // 处理匹配部分（始终保留黄色背景高亮）
+            let matched_part = &line[start..end];
+            highlighted.push_str(&matched_part.on_yellow().to_string());
+            last_index = end;
+            has_match = true;
+        }
+    }
+
+    // 处理剩余未匹配的文本（根据 is_highlight 决定是否语法高亮）
+    let remaining_part = &line[last_index..];
+    if is_highlight {
+        let remaining_ranges: Vec<(Style, &str)> = highlighter
+            .highlight_line(remaining_part, &ps)
+            .unwrap_or_default();
+        highlighted.push_str(&as_24_bit_terminal_escaped(&remaining_ranges[..], true));
+    } else {
+        highlighted.push_str(remaining_part); // 无语法高亮时直接拼接原始文本
+    }
+
+    (has_match, highlighted)
+}
