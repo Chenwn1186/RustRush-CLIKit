@@ -30,6 +30,7 @@ pub fn ls_command(
     differentiated: bool,
     header: bool,
     custom_show: &Vec<String>,
+    show_full_path: bool,
 ) {
     list_directory(
         directory,
@@ -50,6 +51,7 @@ pub fn ls_command(
         differentiated,
         header,
         custom_show,
+        show_full_path,
     );
 }
 
@@ -310,6 +312,7 @@ fn list_directory(
     differentiated: bool,
     header: bool,
     custom_show: &Vec<String>,
+    show_full_path: bool,
 ) {
     let color_config = ColorConfig::load_from_file();
     // let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -377,7 +380,7 @@ fn list_directory(
             if files_only && full_path.is_dir() {
                 continue;
             }
-            file_info_manager.add_file_info(entry, human_readable);
+            file_info_manager.add_file_info(entry, human_readable, show_full_path);
         }
         if long {
             file_info_manager.set_long_show(author, inode);
@@ -418,6 +421,7 @@ fn list_directory(
                         differentiated,
                         header,
                         custom_show,
+                        show_full_path,
                     );
                 }
             }
@@ -452,15 +456,32 @@ struct FileInfo {
 }
 
 impl FileInfo {
-    fn from_metadata(entry: &fs::DirEntry, human_readable: bool) -> Option<Self> {
+    fn from_metadata(
+        entry: &fs::DirEntry,
+        human_readable: bool,
+        show_full_path: bool,
+    ) -> Option<Self> {
         let metadata = entry.metadata().ok()?;
-        let relative_path = entry.path().to_string_lossy().to_string().replacen("./", "", 1);
+        let relative_path = entry
+            .path()
+            .to_string_lossy()
+            .to_string()
+            .replacen("./", "", 1);
+        let abs_path = if entry.path().is_absolute() {
+            entry.path().to_path_buf().to_string_lossy().to_string()
+        } else {
+            std::env::current_dir()
+                .unwrap()
+                .join(&relative_path)
+                .to_string_lossy()
+                .to_string()
+        };
         // let relative_path = get_relative_path(&std::env::current_dir().ok()?, &full_path);
-        // let file_name = if !full_name {
-        //     relative_path.file_name()?.to_string_lossy().to_string()
-        // } else {
-        //     full_path.to_string_lossy().to_string()
-        // };
+        let file_name = if !show_full_path {
+            relative_path
+        } else {
+            abs_path
+        };
 
         Some(Self {
             size: if human_readable {
@@ -468,7 +489,7 @@ impl FileInfo {
             } else {
                 format!("{} B", metadata.len())
             },
-            file_name: relative_path,
+            file_name: file_name,
             modified: metadata.modified().ok().map_or_else(
                 || "unknown".to_string(),
                 |t| {
@@ -593,14 +614,18 @@ impl FileInfoManager {
         }
     }
 
-    fn add_file_info(&mut self, entry: &fs::DirEntry, human_readable: bool) {
-        if let Some(file_info) = FileInfo::from_metadata(entry, human_readable) {
+    fn add_file_info(&mut self, entry: &fs::DirEntry, human_readable: bool, show_full_path: bool) {
+        if let Some(file_info) = FileInfo::from_metadata(entry, human_readable, show_full_path) {
             self.file_infos.push(file_info);
             if self.show_vec.is_empty() {
                 self.show_vec = vec![false; self.file_infos[0].name_vec().len()];
             }
             if self.print_order.is_empty() {
                 self.print_order = (0..self.file_infos[0].name_vec().len()).rev().collect();
+                let last_index = self.print_order.len() - 1;
+                if last_index > 0 {
+                    self.print_order.swap(last_index - 1, last_index);
+                }
             }
         }
     }
@@ -739,15 +764,11 @@ impl FileInfoManager {
                         max_widths[i] = max_widths[i].max(header_width[i]);
                     }
                     for (i, name) in name_vec.iter().enumerate() {
-                        if self.show_vec[i] {
-                            if name == "file_name" && differentiated {
-                                print!("{:<width$} ", name, width = max_widths[i]);
-                            } else {
-                                print!("{:<width$} ", name, width = max_widths[i]);
-                            }
-                            continue;
+                        if name == "file_name" && differentiated {
+                            print!("   {:<width$} ", name, width = max_widths[i]);
+                        } else {
+                            print!("{:>width$} ", name, width = max_widths[i]);
                         }
-                        print!("{:<width$} ", name, width = max_widths[i]);
                     }
                     println!();
                 }
