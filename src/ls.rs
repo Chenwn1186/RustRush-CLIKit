@@ -204,7 +204,26 @@ fn format_size(bytes: u64) -> String {
 
     format!("{:.1}{}", size, UNITS[unit_index])
 }
+/// 为文件/文件夹路径生成终端超链接
+/// 
+/// # 参数
+/// - path: 文件/文件夹路径
+/// 
+/// # 返回值
+/// 返回格式化后的超链接字符串
+fn format_file_hyperlink(path: &Path) -> String {
 
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap().join(path)
+    };
+
+    let url = format!("file://{}", abs_path.display());
+    let text = path.to_string_lossy();
+    
+    format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text)
+}
 /// 应用颜色高亮
 fn apply_color(
     name: &str,
@@ -373,7 +392,7 @@ fn list_directory(
             }
         }
 
-        file_info_manager.print(color, differentiated, header);
+        file_info_manager.print(color, differentiated, header, hyperlink);
 
         if recursive {
             for entry in entries.iter() {
@@ -653,7 +672,7 @@ impl FileInfoManager {
         }
         max_widths
     }
-    fn print(&self, color: bool, differentiated: bool, header: bool) {
+    fn print(&self, color: bool, differentiated: bool, header: bool, hyperlink: bool) {
         let name_vec_ori = self.file_infos[0].name_vec();
         // let print_list = self
         //     .print_order
@@ -729,6 +748,7 @@ impl FileInfoManager {
                     let is_dir = self.file_infos[index].is_dir;
                     let is_executable = self.file_infos[index].is_executable;
                     let ext = get_extension(&Path::new(&self.file_infos[index].file_name));
+                    let hyperlink_path = format_file_hyperlink(Path::new(info));
                     let colored_info =
                         apply_color(info, is_dir, &ext, &ColorConfig::load_from_file(), color);
                     let color_split = colored_info.split(info).collect::<Vec<&str>>();
@@ -749,7 +769,7 @@ impl FileInfoManager {
                         "{}{}{:<width$}{}\x1b[0m ",
                         prefix,
                         color_prefix,
-                        info,
+                        if hyperlink {hyperlink_path} else {info.to_string()},
                         color_suffix,
                         width = max_widths[i]
                     );
