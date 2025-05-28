@@ -78,6 +78,10 @@ struct Args {
     #[arg(short = 'f', long)]
     files_only: bool,
 
+    // /// 显示完整路径
+    // #[arg(short = 'F', long)]
+    // full_path: bool,
+
     /// 高亮显示不同类型文件
     #[arg(short, long, default_value_t = false)]
     color: bool,

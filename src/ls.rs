@@ -205,14 +205,13 @@ fn format_size(bytes: u64) -> String {
     format!("{:.1}{}", size, UNITS[unit_index])
 }
 /// 为文件/文件夹路径生成终端超链接
-/// 
+///
 /// # 参数
 /// - path: 文件/文件夹路径
-/// 
+///
 /// # 返回值
 /// 返回格式化后的超链接字符串
 fn format_file_hyperlink(path: &Path) -> String {
-
     let abs_path = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -221,10 +220,10 @@ fn format_file_hyperlink(path: &Path) -> String {
 
     let url = format!("file://{}", abs_path.display());
     let text = path.to_string_lossy();
-    
+
     format!("\x1b]8;;{}\x07{}\x1b]8;;\x07", url, text)
 }
-/// 应用颜色高亮
+/// 给文件夹或文件添加配置的颜色高亮
 fn apply_color(
     name: &str,
     is_dir: bool,
@@ -250,38 +249,38 @@ fn apply_color(
     name.to_string()
 }
 
-/// 计算相对路径
-fn get_relative_path(base: &Path, target: &Path) -> PathBuf {
-    let base_components: Vec<_> = base.components().collect();
-    let target_components: Vec<_> = target.components().collect();
+// /// 计算相对路径
+// fn get_relative_path(base: &Path, target: &Path) -> PathBuf {
+//     let base_components: Vec<_> = base.components().collect();
+//     let target_components: Vec<_> = target.components().collect();
 
-    let mut common_len = 0;
-    for (i, (base_comp, target_comp)) in base_components
-        .iter()
-        .zip(target_components.iter())
-        .enumerate()
-    {
-        if base_comp == target_comp {
-            common_len = i + 1;
-        } else {
-            break;
-        }
-    }
+//     let mut common_len = 0;
+//     for (i, (base_comp, target_comp)) in base_components
+//         .iter()
+//         .zip(target_components.iter())
+//         .enumerate()
+//     {
+//         if base_comp == target_comp {
+//             common_len = i + 1;
+//         } else {
+//             break;
+//         }
+//     }
 
-    let mut relative_path = PathBuf::new();
-    for _ in common_len..base_components.len() {
-        relative_path.push("..");
-    }
-    for comp in &target_components[common_len..] {
-        relative_path.push(comp);
-    }
+//     let mut relative_path = PathBuf::new();
+//     for _ in common_len..base_components.len() {
+//         relative_path.push("..");
+//     }
+//     for comp in &target_components[common_len..] {
+//         relative_path.push(comp);
+//     }
 
-    if relative_path.as_os_str().is_empty() {
-        PathBuf::from(".")
-    } else {
-        relative_path
-    }
-}
+//     if relative_path.as_os_str().is_empty() {
+//         PathBuf::from(".")
+//     } else {
+//         relative_path
+//     }
+// }
 // /// 过滤 ANSI 转义序列的函数
 // fn strip_ansi_escapes(s: &str) -> String {
 //     lazy_static! {
@@ -313,7 +312,7 @@ fn list_directory(
     custom_show: &Vec<String>,
 ) {
     let color_config = ColorConfig::load_from_file();
-    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    // let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
     if directories_only && !directory.is_dir() {
         return;
@@ -398,8 +397,8 @@ fn list_directory(
             for entry in entries.iter() {
                 let full_path = entry.path();
                 if full_path.is_dir() {
-                    let relative_path = get_relative_path(&current_dir, &full_path);
-                    println!("\n{}:", relative_path.display());
+                    // let relative_path = get_relative_path(&current_dir, &full_path);
+                    println!("\n{}:", full_path.display());
                     list_directory(
                         full_path,
                         author,
@@ -455,9 +454,13 @@ struct FileInfo {
 impl FileInfo {
     fn from_metadata(entry: &fs::DirEntry, human_readable: bool) -> Option<Self> {
         let metadata = entry.metadata().ok()?;
-        let full_path = entry.path();
-        let relative_path = get_relative_path(&std::env::current_dir().ok()?, &full_path);
-        let file_name = relative_path.file_name()?.to_string_lossy().to_string();
+        let relative_path = entry.path().to_string_lossy().to_string().replacen("./", "", 1);
+        // let relative_path = get_relative_path(&std::env::current_dir().ok()?, &full_path);
+        // let file_name = if !full_name {
+        //     relative_path.file_name()?.to_string_lossy().to_string()
+        // } else {
+        //     full_path.to_string_lossy().to_string()
+        // };
 
         Some(Self {
             size: if human_readable {
@@ -465,7 +468,7 @@ impl FileInfo {
             } else {
                 format!("{} B", metadata.len())
             },
-            file_name,
+            file_name: relative_path,
             modified: metadata.modified().ok().map_or_else(
                 || "unknown".to_string(),
                 |t| {
@@ -639,6 +642,9 @@ impl FileInfoManager {
     // }
 
     fn show_name(&mut self, name: String) {
+        if self.file_infos.is_empty() {
+            return;
+        }
         let name_vec = self.file_infos[0].name_vec();
         for index in 0..name_vec.len() {
             if name_vec[index] == name {
@@ -673,6 +679,9 @@ impl FileInfoManager {
         max_widths
     }
     fn print(&self, color: bool, differentiated: bool, header: bool, hyperlink: bool) {
+        if self.file_infos.is_empty() {
+            return;
+        }
         let name_vec_ori = self.file_infos[0].name_vec();
         // let print_list = self
         //     .print_order
@@ -732,9 +741,9 @@ impl FileInfoManager {
                     for (i, name) in name_vec.iter().enumerate() {
                         if self.show_vec[i] {
                             if name == "file_name" && differentiated {
-                                print!("{:>width$} ", name, width = max_widths[i]);
+                                print!("{:<width$} ", name, width = max_widths[i]);
                             } else {
-                                print!("{:>width$} ", name, width = max_widths[i]);
+                                print!("{:<width$} ", name, width = max_widths[i]);
                             }
                             continue;
                         }
@@ -763,13 +772,17 @@ impl FileInfoManager {
                     } else if is_executable {
                         " * "
                     } else {
-                        "   "
+                        " > "
                     };
                     print!(
                         "{}{}{:<width$}{}\x1b[0m ",
                         prefix,
                         color_prefix,
-                        if hyperlink {hyperlink_path} else {info.to_string()},
+                        if hyperlink {
+                            hyperlink_path
+                        } else {
+                            info.to_string()
+                        },
                         color_suffix,
                         width = max_widths[i]
                     );
