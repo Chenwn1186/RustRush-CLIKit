@@ -29,7 +29,8 @@ struct Args {
     #[arg(short = 'A', long)]
     author: bool,
 
-    /// 显示详细信息
+    /// 显示详细信息\
+    /// 显示的条目：permission, modified, file_name, size
     #[arg(short, long)]
     long: bool,
 
@@ -88,6 +89,12 @@ struct Args {
     /// 打印表头
     #[arg(long, default_value_t = false)]
     header: bool,
+
+    /// 自定义显示的条目\
+    /// 可选条目：size,file_name,modified,is_dir,author,inode,link_count,
+    /// block_size,blocks,device,atime,ctime,mtime,is_executable,permission,group
+    #[arg(short = 'C', long, value_delimiter = ',')]
+    custom_show: Vec<String>,
 
 
     #[command(subcommand)]
@@ -243,6 +250,7 @@ fn main() {
                 args.color,
                 args.differentiated,
                 args.header,
+                &args.custom_show,
             );
         }
     }

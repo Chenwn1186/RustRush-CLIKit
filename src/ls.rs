@@ -2,8 +2,8 @@ use crate::utils::utils::get_extension;
 use chrono::DateTime;
 use chrono::Local;
 use colored::{Color, Colorize};
-use fancy_regex::Regex;
-use lazy_static::lazy_static;
+// use fancy_regex::Regex;
+// use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -29,6 +29,7 @@ pub fn ls_command(
     color: bool,
     differentiated: bool,
     header: bool,
+    custom_show: &Vec<String>,
 ) {
     list_directory(
         directory,
@@ -48,6 +49,7 @@ pub fn ls_command(
         color,
         differentiated,
         header,
+        custom_show,
     );
 }
 
@@ -261,14 +263,14 @@ fn get_relative_path(base: &Path, target: &Path) -> PathBuf {
         relative_path
     }
 }
-/// 过滤 ANSI 转义序列的函数
-fn strip_ansi_escapes(s: &str) -> String {
-    lazy_static! {
-        static ref ANSI_ESCAPE: Regex =
-            Regex::new(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap();
-    }
-    ANSI_ESCAPE.replace_all(s, "").to_string()
-}
+// /// 过滤 ANSI 转义序列的函数
+// fn strip_ansi_escapes(s: &str) -> String {
+//     lazy_static! {
+//         static ref ANSI_ESCAPE: Regex =
+//             Regex::new(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap();
+//     }
+//     ANSI_ESCAPE.replace_all(s, "").to_string()
+// }
 
 /// 列出目录内容
 fn list_directory(
@@ -289,6 +291,7 @@ fn list_directory(
     color: bool,
     differentiated: bool,
     header: bool,
+    custom_show: &Vec<String>,
 ) {
     let color_config = ColorConfig::load_from_file();
     let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -353,6 +356,9 @@ fn list_directory(
             if directories_only && !full_path.is_dir() {
                 continue;
             }
+            if files_only && full_path.is_dir() {
+                continue;
+            }
             file_info_manager.add_file_info(entry, human_readable);
         }
         if long {
@@ -360,6 +366,13 @@ fn list_directory(
         } else {
             file_info_manager.set_classic_show();
         }
+
+        if !custom_show.is_empty() {
+            for name in custom_show.iter() {
+                file_info_manager.show_name(name.to_string());
+            }
+        }
+
         file_info_manager.print(color, differentiated, header);
 
         if recursive {
@@ -386,6 +399,7 @@ fn list_directory(
                         color,
                         differentiated,
                         header,
+                        custom_show,
                     );
                 }
             }
@@ -416,6 +430,7 @@ struct FileInfo {
     mtime: i64,
     is_executable: bool,
     permission: std::fs::Permissions,
+    group: u32,
 }
 
 impl FileInfo {
@@ -451,6 +466,7 @@ impl FileInfo {
             mtime: metadata.mtime(),
             is_executable: metadata.permissions().mode() & 0o111 != 0,
             permission: metadata.permissions(),
+            group: metadata.gid(),
         })
     }
 
@@ -460,22 +476,50 @@ impl FileInfo {
         info_vec.push(self.file_name.clone());
         info_vec.push(self.modified.clone());
         info_vec.push(self.is_dir.to_string());
-        info_vec.push(self.author.to_string());
+        info_vec.push(
+            users::get_user_by_uid(self.author)
+                .map(|u| u.name().to_string_lossy().into_owned())
+                .unwrap_or_else(|| self.author.to_string()),
+        ); // 显示用户名或回退到UID
         info_vec.push(self.inode.to_string());
         info_vec.push(self.link_count.to_string());
         info_vec.push(self.block_size.to_string());
         info_vec.push(self.blocks.to_string());
         info_vec.push(self.device.to_string());
-        info_vec.push(self.atime.to_string());
-        info_vec.push(self.ctime.to_string());
-        info_vec.push(self.mtime.to_string());
+        info_vec.push(
+            DateTime::from_timestamp(self.atime, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string(),
+        ); // 转换atime
+        info_vec.push(
+            DateTime::from_timestamp(self.ctime, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string(),
+        ); // 转换ctime
+        info_vec.push(
+            DateTime::from_timestamp(self.mtime, 0)
+                .unwrap()
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string(),
+        ); // 转换mtime
         info_vec.push(self.is_executable.to_string());
-        info_vec.push(FileInfo::permission_to_string(self.permission.mode()));
+        info_vec.push(FileInfo::permission_to_string(
+            self.permission.mode(),
+            self.is_dir,
+        ));
+        info_vec.push(
+            users::get_group_by_gid(self.group)
+                .map(|u| u.name().to_string_lossy().into_owned())
+                .unwrap_or_else(|| self.group.to_string()),
+        ); // 显示组名或回退到GID
         info_vec
     }
 
-    fn permission_to_string(mode: u32) -> String {
+    fn permission_to_string(mode: u32, is_dir: bool) -> String {
         let mut s = String::with_capacity(9);
+        s.push(if is_dir { 'd' } else { '-' });
         s.push(if mode & 0o400 != 0 { 'r' } else { '-' });
         s.push(if mode & 0o200 != 0 { 'w' } else { '-' });
         s.push(if mode & 0o100 != 0 { 'x' } else { '-' });
@@ -544,11 +588,11 @@ impl FileInfoManager {
             self.show_vec[index] = false;
         }
     }
-    fn hide_vec(&mut self, indexs: Vec<usize>) {
-        for index in indexs {
-            self.hide(index);
-        }
-    }
+    // fn hide_vec(&mut self, indexs: Vec<usize>) {
+    //     for index in indexs {
+    //         self.hide(index);
+    //     }
+    // }
     fn hide_except_vec(&mut self, indexs: Vec<usize>) {
         for index in 0..self.show_vec.len() {
             if !indexs.contains(&index) {
@@ -566,13 +610,26 @@ impl FileInfoManager {
             self.show(index);
         }
     }
-    fn show_except_vec(&mut self, indexs: Vec<usize>) {
-        for index in 0..self.show_vec.len() {
-            if !indexs.contains(&index) {
+
+    // fn show_except_vec(&mut self, indexs: Vec<usize>) {
+    //     for index in 0..self.show_vec.len() {
+    //         if !indexs.contains(&index) {
+    //             self.show(index);
+    //         }
+    //     }
+    // }
+
+    fn show_name(&mut self, name: String) {
+        let name_vec = self.file_infos[0].name_vec();
+        for index in 0..name_vec.len() {
+            if name_vec[index] == name {
                 self.show(index);
+                return;
             }
         }
+        println!("Warning: {} not found", name);
     }
+
     fn set_classic_show(&mut self) {
         self.show(1);
         self.hide_except_vec(vec![1]);
@@ -636,23 +693,33 @@ impl FileInfoManager {
                     .collect::<Vec<String>>()
             })
             .collect::<Vec<Vec<String>>>();
-        // println!("{:?}, {:?}, {:?}", infos.len(), print_list, self.show_vec);
-        let max_widths = FileInfoManager::get_max_widths(&infos);
+        // println!(
+        //     "{:?}, {:?}, {:?}, {:?}",
+        //     infos.len(),
+        //     print_list,
+        //     self.show_vec,
+        //     name_vec
+        // );
+        let mut max_widths = FileInfoManager::get_max_widths(&infos);
         for index in 0..infos.len() {
             let info_vec = &infos[index];
             if index == 0 {
                 // 打印表头
                 if header {
+                    let header_width = FileInfoManager::get_max_widths(&vec![name_vec.clone()]);
+                    for i in 0..max_widths.len() {
+                        max_widths[i] = max_widths[i].max(header_width[i]);
+                    }
                     for (i, name) in name_vec.iter().enumerate() {
                         if self.show_vec[i] {
                             if name == "file_name" && differentiated {
-                                print!("{:<width$} ", name, width = max_widths[i]);
+                                print!("{:>width$} ", name, width = max_widths[i]);
                             } else {
-                                print!("{:<width$} ", name, width = max_widths[i]);
+                                print!("{:>width$} ", name, width = max_widths[i]);
                             }
                             continue;
                         }
-                        print!("{:>width$} ", name, width = max_widths[i]);
+                        print!("{:<width$} ", name, width = max_widths[i]);
                     }
                     println!();
                 }
