@@ -31,28 +31,39 @@ pub fn ls_command(
     header: bool,
     custom_show: &Vec<String>,
     show_full_path: bool,
+    tree: usize,
+    max_tree_lines: usize,
 ) {
-    list_directory(
-        directory,
-        author,
-        long,
-        all,
-        recursive,
-        human_readable,
-        time_sort,
-        reverse,
-        hyperlink,
-        inode,
-        ext_sort,
-        size_sort,
-        directories_only,
-        files_only,
-        color,
-        differentiated,
-        header,
-        custom_show,
-        show_full_path,
-    );
+    if tree == 0 {
+        list_directory(
+            directory,
+            author,
+            long,
+            all,
+            recursive,
+            human_readable,
+            time_sort,
+            reverse,
+            hyperlink,
+            inode,
+            ext_sort,
+            size_sort,
+            directories_only,
+            files_only,
+            color,
+            differentiated,
+            header,
+            custom_show,
+            show_full_path,
+        );
+    } else {
+        print_file_tree(
+            directory.as_path(),
+            tree,
+            color,
+            max_tree_lines,
+        );
+    }
 }
 
 /// 定义颜色配置结构体
@@ -94,10 +105,10 @@ impl ColorConfig {
                 ("kts".to_string(), "#F88900".to_string()),    // Kotlin 官方橙色
                 ("sh".to_string(), "#4EAA25".to_string()),     // 绿色
                 ("bat".to_string(), "#4EAA25".to_string()),    // 绿色
-                ("ps1".to_string(), "#012456".to_string()),    // PowerShell 官方蓝色
-                ("psm1".to_string(), "#012456".to_string()),   // PowerShell 官方蓝色
-                ("psd1".to_string(), "#012456".to_string()),   // PowerShell 官方蓝色
-                ("ps1xml".to_string(), "#012456".to_string()), // PowerShell 官方蓝色
+                ("ps1".to_string(), "#164EDB".to_string()),    // PowerShell 官方蓝色
+                ("psm1".to_string(), "#164EDB".to_string()),   // PowerShell 官方蓝色
+                ("psd1".to_string(), "#164EDB".to_string()),   // PowerShell 官方蓝色
+                ("ps1xml".to_string(), "#164EDB".to_string()), // PowerShell 官方蓝色
             ],
             special_dir_colors: vec![
                 ("target".to_string(), "#0000FF".to_string()),   // 蓝色
@@ -121,14 +132,14 @@ impl ColorConfig {
                 ("fonts".to_string(), "#808080".to_string()),    // 灰色
                 ("data".to_string(), "#9370DB".to_string()),     // 暗紫色
                 ("config".to_string(), "#4B0082".to_string()),   // 靛蓝色
-                ("logs".to_string(), "#A52A2A".to_string()),     // 棕色
-                ("tmp".to_string(), "#A52A2A".to_string()),      // 棕色
-                ("cache".to_string(), "#A52A2A".to_string()),    // 棕色
-                ("backup".to_string(), "#A52A2A".to_string()),   // 棕色
-                ("old".to_string(), "#A52A2A".to_string()),      // 棕色
-                ("temp".to_string(), "#A52A2A".to_string()),     // 棕色
-                ("draft".to_string(), "#A52A2A".to_string()),    // 棕色
-                ("unfinished".to_string(), "#A52A2A".to_string()), // 棕色
+                ("logs".to_string(), "#8B4513".to_string()),     // 深棕色(原木色)
+                ("tmp".to_string(), "#D2691E".to_string()),      // 巧克力色
+                ("cache".to_string(), "#CD853F".to_string()),    // 秘鲁色
+                ("backup".to_string(), "#A0522D".to_string()),   // 赭色
+                ("old".to_string(), "#B8860B".to_string()),      // 暗金色
+                ("temp".to_string(), "#BC8F8F".to_string()),     // 玫瑰棕色
+                ("draft".to_string(), "#DEB887".to_string()),    // 实木色
+                ("unfinished".to_string(), "#F4A460".to_string()), // 沙棕色
             ],
         }
     }
@@ -170,6 +181,7 @@ impl ColorConfig {
             if let Ok(r) = u8::from_str_radix(&color_str[1..3], 16) {
                 if let Ok(g) = u8::from_str_radix(&color_str[3..5], 16) {
                     if let Ok(b) = u8::from_str_radix(&color_str[5..7], 16) {
+                        // println!("r: {}, g: {}, b: {}", r, g, b);
                         return Some(Color::TrueColor { r, g, b });
                     }
                 }
@@ -181,7 +193,10 @@ impl ColorConfig {
     fn get_file_color(&self, ext: &str) -> Option<Color> {
         self.file_ext_colors
             .iter()
-            .find(|(e, _)| e == ext)
+            .find(|(e, _)| {
+                // println!("e: {}, ext: {}", e, ext);
+                e == ext
+            })
             .and_then(|(_, c)| Self::parse_color(c))
     }
 
@@ -238,10 +253,18 @@ fn apply_color(
     }
 
     if is_dir {
-        if let Some(color) = color_config.get_dir_color(name) {
-            return name.color(color).to_string();
+        let relative_name = name.split("/").last();
+        match relative_name {
+            Some(relative_name) => {
+                // println!("relative_name: {}", relative_name);
+                if let Some(color) = color_config.get_dir_color(relative_name) {
+                    return name.color(color).to_string();
+                }
+            }
+            None => {
+                return name.blue().to_string();
+            }
         }
-        return name.blue().to_string();
     }
 
     if let Some(color) = color_config.get_file_color(ext) {
@@ -788,12 +811,12 @@ impl FileInfoManager {
                     } else {
                         ""
                     };
-                    let prefix = if is_dir {
-                        " - "
+                    let prefix: String = if is_dir {
+                        " - ".to_string()
                     } else if is_executable {
-                        " * "
+                        " > ".green().to_string()
                     } else {
-                        " > "
+                        "   ".to_string()
                     };
                     print!(
                         "{}{}{:<width$}{}\x1b[0m ",
@@ -808,10 +831,128 @@ impl FileInfoManager {
                         width = max_widths[i]
                     );
                     continue;
+                } else if name_vec[i] == "file_name" {
+                    print!("{:<width$} ", info, width = max_widths[i]);
+                    continue;
                 }
+
                 print!("{:>width$} ", info, width = max_widths[i]);
             }
             println!();
         }
     }
 }
+
+
+
+// ... existing code ...
+
+/// 递归打印文件树
+fn print_tree_recursive(
+    path: &Path,
+    current_depth: usize,
+    max_depth: usize,
+    color: bool,
+    color_config: &ColorConfig,
+    max_items_per_dir: usize,
+    is_last: bool,
+    parent_prefix: &str,
+) {
+    if current_depth > max_depth {
+        return;
+    }
+
+    // 获取文件名/目录名
+    let name = path.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    
+    // 应用颜色
+    let colored_name = if color {
+        if path.is_dir() {
+            if let Some(color) = color_config.get_dir_color(name) {
+                name.color(color).to_string()
+            } else {
+                name.blue().to_string()
+            }
+        } else {
+            let ext = path.extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            if let Some(color) = color_config.get_file_color(ext) {
+                name.color(color).to_string()
+            } else {
+                name.to_string()
+            }
+        }
+    } else {
+        name.to_string()
+    };
+
+    // 打印当前条目 - 第一层不显示任何缩进或连接线
+    if current_depth == 0 {
+        println!("{}", colored_name);
+    } else {
+        println!("{}{}── {}", parent_prefix, if is_last { "└" } else { "├" }, colored_name);
+    }
+
+    // 如果是目录且未达到最大深度，递归处理子项
+    if path.is_dir() && current_depth < max_depth {
+        if let Ok(entries) = fs::read_dir(path) {
+            let entries: Vec<_> = entries.filter_map(Result::ok).collect();
+            let count = entries.len();
+            let items_to_show = if max_items_per_dir > 0 {
+                std::cmp::min(max_items_per_dir, count)
+            } else {
+                count
+            };
+            
+            for (i, entry) in entries.iter().take(items_to_show).enumerate() {
+                let new_prefix = if current_depth == 0 {
+                    "".to_string()  // 第一层子项不需要缩进
+                } else {
+                    format!("{}{}", 
+                        parent_prefix, 
+                        if is_last { "    " } else { "│   " }
+                    )
+                };
+                print_tree_recursive(
+                    &entry.path(),
+                    current_depth + 1,
+                    max_depth,
+                    color,
+                    color_config,
+                    max_items_per_dir,
+                    i == items_to_show - 1,
+                    &new_prefix,
+                );
+            }
+
+            // 如果条目数超过限制，显示省略提示
+            if max_items_per_dir > 0 && count > max_items_per_dir {
+                let new_prefix = format!("{}{}", 
+                    parent_prefix, 
+                    if is_last { "    " } else { "│   " }
+                );
+                println!("{}... ({} more items)", new_prefix, count - max_items_per_dir);
+            }
+        }
+    }
+}
+
+// 更新print_file_tree函数
+pub fn print_file_tree(path: &Path, max_depth: usize, color: bool, max_items_per_dir: usize) {
+    let color_config = ColorConfig::load_from_file();
+    print_tree_recursive(
+        path, 
+        0, 
+        max_depth, 
+        color, 
+        &color_config, 
+        max_items_per_dir,
+        true,
+        "",
+    );
+}
+
+// ... existing code ...

@@ -70,6 +70,14 @@ struct Args {
     #[arg(short = 'S', long)]
     size_sort: bool,
 
+    /// 显示文件树
+    #[arg(short = 'T', long, default_value_t = 0)]
+    tree: usize,
+
+    /// 文件树每层最大显示行数
+    #[arg(short = 'm', long, default_value_t = 10)]
+    max_tree_lines: usize,
+
     /// 仅显示目录
     #[arg(short = 'D', long)]
     directories_only: bool,
@@ -99,8 +107,6 @@ struct Args {
     /// block_size,blocks,device,atime,ctime,mtime,is_executable,permission,group
     #[arg(short = 'C', long, value_delimiter = ',')]
     custom_show: Vec<String>,
-
-    //todo: 显示文件树状图
 
     #[command(subcommand)]
     sub: Option<SubCommands>,
@@ -196,6 +202,7 @@ enum SubCommands {
 }
 
 // ** D:\docs\rust\bhw\big_homework\target\debug\rt.exe **
+// ** /home/chenwn/RustRush-CLIKit/target/debug/rt **
 
 fn main() {
     let args = Args::parse();
@@ -257,6 +264,8 @@ fn main() {
                 args.header,
                 &args.custom_show,
                 args.full_path,
+                args.tree,
+                args.max_tree_lines,
             );
         }
     }
