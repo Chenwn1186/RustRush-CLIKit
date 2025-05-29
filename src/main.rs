@@ -29,7 +29,8 @@ struct Args {
     #[arg(short = 'A', long)]
     author: bool,
 
-    /// 显示详细信息\
+    /// 显示详细信息
+    /// 
     /// 显示的条目：permission, modified, file_name, size
     #[arg(short, long)]
     long: bool,

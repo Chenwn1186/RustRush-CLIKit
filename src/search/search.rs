@@ -21,35 +21,21 @@ pub fn search_command(
 ) {
     // 检测是否有管道输入（标准输入非终端时视为管道）
     let has_pipe_input = !atty::is(Stream::Stdin);
-    let paths_to_process = if has_pipe_input {
-        // 从管道读取路径（每行一个路径）
+    
+    if has_pipe_input {
+        // 从管道读取内容并直接搜索
         let stdin = io::stdin().lock();
-        stdin
-            .lines()
-            .filter_map(|line| line.ok()) // 忽略读取失败的行
-            .collect()
-    } else {
-        // 无管道时使用命令行传入的路径
-        paths
-    };
-
-    // let first_content = match fs::read(&paths_to_process[0]) {
-    //     Ok(content) => String::from_utf8_lossy(&content).to_string(),
-    //     Err(_) => String::new(),
-    // };
-    if keyword.len() < 20 {
-        println!(
-            "Searching for '{}' in {} . regex: {}. ignore_case: {} . recursive: {}",
-            keyword,
-            paths_to_process.join(", "),
-            regex,
-            ignore_case,
-            recursive
-        );
+        for line in stdin.lines().filter_map(|line| line.ok()) {
+            let (matched, highlighted) = highlight_keyword(&line, &keyword, ignore_case, "", regex);
+            if matched {
+                println!("{}", highlighted);
+            }
+        }
+        return;
     }
 
-    // 处理最终路径列表（管道路径或命令行路径）
-    for p in paths_to_process {
+    // 无管道时使用命令行传入的路径进行搜索
+    for p in paths {
         let path = Path::new(&p);
         search_and_highlight(
             path,
@@ -58,7 +44,7 @@ pub fn search_command(
             regex,
             ignore_case,
             recursive,
-            true, // 初始调用时匹配文件名
+            true,
         );
     }
 }

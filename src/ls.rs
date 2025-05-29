@@ -315,7 +315,7 @@ fn apply_color(
 //     ANSI_ESCAPE.replace_all(s, "").to_string()
 // }
 
-/// 列出目录内容
+
 fn list_directory(
     directory: PathBuf,
     author: bool,
@@ -844,9 +844,6 @@ impl FileInfoManager {
 }
 
 
-
-// ... existing code ...
-
 /// 递归打印文件树
 fn print_tree_recursive(
     path: &Path,
@@ -862,12 +859,10 @@ fn print_tree_recursive(
         return;
     }
 
-    // 获取文件名/目录名
     let name = path.file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
     
-    // 应用颜色
     let colored_name = if color {
         if path.is_dir() {
             if let Some(color) = color_config.get_dir_color(name) {
@@ -940,8 +935,7 @@ fn print_tree_recursive(
     }
 }
 
-// 更新print_file_tree函数
-pub fn print_file_tree(path: &Path, max_depth: usize, color: bool, max_items_per_dir: usize) {
+fn print_file_tree(path: &Path, max_depth: usize, color: bool, max_items_per_dir: usize) {
     let color_config = ColorConfig::load_from_file();
     print_tree_recursive(
         path, 
@@ -954,5 +948,3 @@ pub fn print_file_tree(path: &Path, max_depth: usize, color: bool, max_items_per
         "",
     );
 }
-
-// ... existing code ...
