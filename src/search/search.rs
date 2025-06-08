@@ -17,11 +17,19 @@ pub fn search_command(
     search_content: bool,
     regex: bool,
     ignore_case: bool,
-    recursive: bool,
+    recursive_depth: usize, // 修改为usize类型
+    size: Option<String>,
+    file_type: Option<String>,
+    modified: Option<String>,
+    accessed: Option<String>,
+    created: Option<String>,
+    permission: Option<String>,
+    owner: Option<String>,
+    group: Option<String>,
 ) {
     // 检测是否有管道输入（标准输入非终端时视为管道）
     let has_pipe_input = !atty::is(Stream::Stdin);
-    
+
     if has_pipe_input {
         // 从管道读取内容并直接搜索
         let stdin = io::stdin().lock();
@@ -43,21 +51,36 @@ pub fn search_command(
             search_content,
             regex,
             ignore_case,
-            recursive,
+            recursive_depth,
             true,
+            &size,
+            &file_type,
+            &modified,
+            &accessed,
+            &created,
+            &permission,
+            &owner,
+            &group,
         );
     }
 }
 
-/// 统一处理文件/目录的搜索与高亮
 fn search_and_highlight(
     path: &Path,
     keyword: &str,
     search_content: bool,
     regex: bool,
     ignore_case: bool,
-    recursive: bool,
+    depth: usize, // 修改参数名和类型
     match_filename: bool,
+    size: &Option<String>,
+    file_type: &Option<String>,
+    modified: &Option<String>,
+    accessed: &Option<String>,
+    created: &Option<String>,
+    permission: &Option<String>,
+    owner: &Option<String>,
+    group: &Option<String>,
 ) {
     let paths_to_search = match fs::read_dir(path) {
         Ok(entries) => entries
@@ -74,7 +97,84 @@ fn search_and_highlight(
         }
     };
 
+    // todo: 按照ls部分的着色逻辑来改写这部分
     for p in paths_to_search {
+        // 添加文件筛选条件
+        let mut should_skip = false;
+
+        if let Some(size_str) = size {
+            if let Ok(passed) = crate::utils::utils::check_size_condition(&p, size_str) {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+
+        if let Some(file_type_str) = file_type {
+            if let Ok(passed) = crate::utils::utils::check_file_type(&p, file_type_str) {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+
+        if let Some(modified_str) = modified {
+            if let Ok(passed) =
+                crate::utils::utils::check_datetime_condition(&p, modified_str, "mtime")
+            {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+
+        if let Some(accessed_str) = accessed {
+            if let Ok(passed) =
+                crate::utils::utils::check_datetime_condition(&p, accessed_str, "atime")
+            {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+
+        if let Some(created_str) = created {
+            if let Ok(passed) =
+                crate::utils::utils::check_datetime_condition(&p, created_str, "ctime")
+            {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+        if let Some(permission_str) = permission {
+            if let Ok(passed) = crate::utils::utils::check_permission(&p, permission_str) {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+
+        if let Some(owner_str) = owner {
+            if let Ok(passed) = crate::utils::utils::check_owner(&p, owner_str) {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+
+        if let Some(group_str) = group {
+            if let Ok(passed) = crate::utils::utils::check_group(&p, group_str) {
+                if !passed {
+                    should_skip = true;
+                }
+            }
+        }
+
+        if should_skip {
+            continue;
+        }
+
         // 1. 处理文件名匹配逻辑
         if match_filename {
             if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
@@ -82,19 +182,29 @@ fn search_and_highlight(
                 let (name_matched, highlighted_name) =
                     highlight_keyword(name, keyword, ignore_case, "", regex);
                 if name_matched {
-                    let prefix = if p.is_dir() { "- " } else { "* " };
+                    //显示前缀，区分文件和目录
+                    let prefix = if p.is_dir() { "" } else { "" };
                     println!("{}{}", prefix, p.with_file_name(highlighted_name).display());
                 }
-                if recursive && p.is_dir() {
-                    // 递归搜索子目录
+                if depth > 0 && p.is_dir() {
+                    // 修改递归条件
+                    // 递归搜索子目录，深度减1
                     search_and_highlight(
                         &p,
                         keyword,
                         search_content,
                         regex,
                         ignore_case,
-                        recursive,
-                        false, // 递归调用时不再匹配文件名
+                        depth - 1, // 深度递减
+                        true,
+                        size,
+                        file_type,
+                        modified,
+                        accessed,
+                        created,
+                        permission,
+                        owner,
+                        group,
                     );
                 }
             }
@@ -105,7 +215,6 @@ fn search_and_highlight(
             if let Ok(content) = fs::read_to_string(&p) {
                 let ext = get_extension(&p);
                 for (line_num, line) in content.lines().enumerate() {
-                    // 调用高亮函数，同时获取匹配状态和高亮结果
                     let (line_matched, highlighted_line) =
                         highlight_keyword(line, keyword, ignore_case, &ext, regex);
                     if line_matched {

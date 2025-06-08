@@ -30,7 +30,7 @@ struct Args {
     author: bool,
 
     /// 显示详细信息
-    /// 
+    ///
     /// 显示的条目：permission, modified, file_name, size
     #[arg(short, long)]
     long: bool,
@@ -70,7 +70,7 @@ struct Args {
     /// 按文件大小降序排序
     #[arg(short = 'S', long)]
     size_sort: bool,
-
+    //todo:文件树支持显示隐藏文件，支持条件筛选
     /// 显示文件树
     #[arg(short = 'T', long, default_value_t = 0)]
     tree: usize,
@@ -152,9 +152,90 @@ enum SubCommands {
         /// 忽略大小写
         #[arg(short, long, default_value_t = false)]
         ignore_case: bool,
-        /// 是否递归搜索
-        #[arg(short = 'R', long, default_value_t = false)]
-        recursive: bool,
+        /// 递归搜索的深度，默认为1，即不递归搜索
+        #[arg(short = 'R', long, default_value_t = 1)]
+        recursive_depth: usize,
+
+        /// 筛选条件：文件大小
+        /// 格式：xx-yyZ、xxZ、-yyZ（需要用双引号包含）
+        /// xx: 起始大小，数字
+        /// yy: 结束大小，数字
+        /// Z: 可以是k、m、g、t、p，表示KB、MB、GB、TB、PB
+        /// 例如：100k-200m表示100KB到200MB之间的文件
+        /// 范围可以叠加，用逗号分隔，例如：100k-200m,10g表示100KB到200MB之间的文件，或者10GB以上的文件
+        #[arg(short = 'S', long)]
+        size: Option<String>,
+
+        //不是后缀的原因：文件类型范围更大，会更方便；指定的后缀可以只用正则表达式匹配
+        /// 筛选条件：文件类型
+        ///
+        /// 支持的文件类型：
+        /// 1.text: 纯文本文件，包括代码文件、配置文件、日志文件等
+        /// 2.image: 图像文件
+        /// 3.audio: 音频文件
+        /// 4.video: 视频文件
+        /// 5.document: 文档文件，包括PDF、Word、Excel等
+        /// 6.archive: 压缩文件，包括zip、tar、rar等
+        /// 7.executable: 可执行文件
+        /// 8.font: 字体文件
+        /// 9.library: 库文件
+        /// 10.database: 数据库文件
+        /// 11.3D_model: 三维模型文件
+        /// 12.vitural_box: 虚拟机、容器等虚拟环境文件
+        /// 13.dump: 内存转储文件
+        ///
+        /// 在文件类型前面加上!表示不匹配该类型的文件
+        /// 例如：!text表示不匹配纯文本文件
+        /// 多个类型可以用逗号分隔，例如：text,image表示匹配纯文本文件和图像文件
+        #[arg(short = 't', long)]
+        file_type: Option<String>,
+
+        /// 筛选条件：文件修改时间
+        /// 格式：xx:yyZ、xxZ:、:yyZ、xxZ、special_datetime
+        /// xx: 起始时间，数字
+        /// yy: 结束时间，数字
+        /// Z: 可以是y、m、d、h、M、s，表示年、月、日、时、分、秒
+        /// xx:yyZ 表示在Z的单位内，从xx开始到yy结束的时间范围
+        /// xxZ: 表示从xx开始到当前时间的时间范围
+        /// :yyZ 表示yyZ及往前的所有时间范围
+        /// xxZ 表示xxZ表示的时间范围，时间跨度与Z的单位相同
+        /// special_datetime: 特殊时间，如today、yesterday、this_month、last_month、this_year、last_year
+        /// 范围可以用逗号分隔以取并集，例如：2021:2022y,10m表示在2021年到2022年或者在10月份
+        /// 单个时间范围内的不同时间单位用“-”分隔，例如：2021y-7:8m-10:20d-:10h表示在2021年7月或8月的10日到20日，并且在00:00到10:00之间的时间范围
+        #[arg(short = 'm', long)]
+        modified: Option<String>,
+
+        /// 筛选条件：文件访问时间
+        /// 格式与modified相同
+        #[arg(short = 'a', long)]
+        accessed: Option<String>,
+
+        /// 筛选条件：文件创建时间
+        /// 格式与modified相同
+        #[arg(short = 'c', long)]
+        created: Option<String>,
+
+        /// 筛选条件：文件权限
+        /// 格式：rwxrwxrwx
+        /// r: 可读
+        /// w: 可写
+        /// x: 可执行
+        /// -: 无权限
+        /// 例如：r-xr-xr-x表示可读、可执行，不可写
+        #[arg(short = 'p', long)]
+        permission: Option<String>,
+
+        /// 筛选条件：文件所有者
+        /// uid或者用户名
+        /// 优先搜索用户名，找不到再搜索uid
+        #[arg(short = 'o', long)]
+        owner: Option<String>,
+
+        /// 筛选条件：文件所属组
+        /// gid或者组名
+        /// 优先搜索组名，找不到再搜索gid
+        #[arg(short = 'g', long)]
+        group: Option<String>,
     },
     /// 批量重命名
     ///
@@ -214,7 +295,15 @@ fn main() {
             search_content,
             regex,
             ignore_case,
-            recursive,
+            recursive_depth,
+            size,
+            file_type,
+            modified,
+            accessed,
+            created,
+            permission,
+            owner,
+            group,
         }) => {
             search_command(
                 paths,
@@ -222,7 +311,15 @@ fn main() {
                 search_content,
                 regex,
                 ignore_case,
-                recursive,
+                recursive_depth,
+                size,
+                file_type,
+                modified,
+                accessed,
+                created,
+                permission,
+                owner,
+                group,
             );
         }
         Some(SubCommands::Show { file_path, lines }) => {

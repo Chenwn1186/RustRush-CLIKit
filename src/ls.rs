@@ -62,6 +62,7 @@ pub fn ls_command(
             tree,
             color,
             max_tree_lines,
+            hyperlink,
         );
     }
 }
@@ -854,18 +855,23 @@ fn print_tree_recursive(
     max_items_per_dir: usize,
     is_last: bool,
     parent_prefix: &str,
+    hyperlink: bool,
 ) {
     if current_depth > max_depth {
         return;
     }
 
-    let name = path.file_name()
+    let name = if hyperlink{
+        format_file_hyperlink(path)
+    }else{
+        path.file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or("");
+        .unwrap_or("").to_string()
+    };
     
     let colored_name = if color {
         if path.is_dir() {
-            if let Some(color) = color_config.get_dir_color(name) {
+            if let Some(color) = color_config.get_dir_color(&name) {
                 name.color(color).to_string()
             } else {
                 name.blue().to_string()
@@ -920,6 +926,7 @@ fn print_tree_recursive(
                     max_items_per_dir,
                     i == items_to_show - 1,
                     &new_prefix,
+                    hyperlink,
                 );
             }
 
@@ -935,7 +942,7 @@ fn print_tree_recursive(
     }
 }
 
-fn print_file_tree(path: &Path, max_depth: usize, color: bool, max_items_per_dir: usize) {
+fn print_file_tree(path: &Path, max_depth: usize, color: bool, max_items_per_dir: usize, hyperlink: bool) {
     let color_config = ColorConfig::load_from_file();
     print_tree_recursive(
         path, 
@@ -946,5 +953,7 @@ fn print_file_tree(path: &Path, max_depth: usize, color: bool, max_items_per_dir
         max_items_per_dir,
         true,
         "",
+        hyperlink,
+        
     );
 }
