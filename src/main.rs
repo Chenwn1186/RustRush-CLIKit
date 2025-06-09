@@ -138,8 +138,8 @@ enum SubCommands {
     },
     /// 搜索文件名或文件内容
     Search {
-        /// 要搜索的文件路径列表
-        #[arg(short, long, default_value = ".")]
+        /// 要搜索的文件路径列表，用逗号分隔，默认为当前目录
+        #[arg(short, long, default_value = ".", value_delimiter = ',')]
         paths: Vec<String>,
         /// 要搜索的关键字
         keyword: String,
@@ -242,33 +242,55 @@ enum SubCommands {
     /// 支持正则表达式、多种高级模板匹配
     ///
     /// 默认通配符:
+    /// 
     /// - {source}: 整个文件名，包含前缀和后缀
-    /// - {prefix}: 文件名前缀，比如 "example" 中的 "example"
+    /// 
+    /// - {prefix}: 文件名前缀，比如 "example.txt" 中的 "example"
+    /// 
     /// - {suffix}: 文件名后缀，比如 "example.txt" 中的 "txt"，"abc.c.d"中的"c.d"
-    /// - {date_time:%format%}: 文件修改日期, %format%为格式控制字符，默认为%Y-%m-%d %H:%M:%S
-    /// - {n}: 序号
+    /// 
+    /// - { n }: 序号
+    /// 
     ///     - {n:start=1}: 起始值为1, 如1, 2...**默认起始值为1**
+    /// 
     ///     - {n:width=2}: 宽度为2，不足2位用0填充, 如001, 002...**默认宽度为0** <!-- 十六进制需要在0x后面补0-->
+    /// 
     ///     - {n:step=2}: 步长为2, 如1, 3, 5...**默认步长为1；步长只能是正数**
+    /// 
     ///     - {n:radix=16}: 进制为16, 如0x01, 0x02...**默认进制为10**
+    /// 
     ///     - {n:reverse=10}: 反向, 并从10开始, 如10, 9, 8...**默认不反向**
+    /// 
     /// - {+p}: 将p指定的内容转换成大写，如{+source}->ABC.TXT
+    /// 
     /// - {-p}: 将p指定的内容转换成小写，如{-source}->abc.txt
+    /// 
     /// - {p:l}: 对p指定的内容进行截取，l为截取的长度，如{source:3}->abc；只对{source}、{prefix}、{suffix}有效
+    /// 
     /// - {p:s:l}: 对p指定的内容进行截取，l为截取的长度，s为起始位置，如{source:1:3}->bca；只对{source}、{prefix}、{suffix}有效
+    /// 
     /// - {p:s-e}: 对p指定的内容进行截取，s为起始位置，e为结束位置，如{source:1-3}->bca；只对{source}、{prefix}、{suffix}有效
+    /// 
     /// - {rand:n}: 生成随机数，n为生成的随机数的长度，如{rand:3}->123 <!-- 需要保证不重复-->
+    /// 
     /// - 元数据：
-    ///     - {image:width, height, manufacturer, model, datetime, location, ISO, aperture, exposure_time, focal_length, metering_mode, orientation, flash, white_balance}: 获取图片的元数据，如{exif:width}->1920
-    ///     - {music:artist, album, title, year, genre, duration, bitrate, sample_rate, channels}: 获取音乐的元数据，如{music:artist}->Artist
+    /// 
+    ///     - {image:width, height, make, model, create_date, location, ISO, 
+    ///     aperture, exposure_time, focal_length, 
+    ///     orientation, flash}: 获取图片的元数据，如{exif:width}->1920
+    /// 
+    ///     - {audio:artist, album, title, year, genre, duration, disc, date_recorded, date_released}: 获取音乐的元数据，如{music:artist}->Artist
+    /// 
     ///     - {video:width, height, duration, bitrate, frame_rate, codec, resolution, aspect_ratio}: 获取视频的元数据，如{video:width}->1920
-    ///     -
+    /// 
+    ///     - 
+    /// 如果不开启模板匹配或通配符功能，就无法批量重命名
     Rename {
         /// 要重命名的文件路径列表
         source: String,
         /// 重命名后的文件名
         target: String,
-        /// 指定文件夹下面的文件进行重命名
+        /// 指定文件夹下面的文件进行重命名，默认为当前目录
         #[arg(short, long, default_value = ".")]
         directory: String,
         /// 开启正则表达式
@@ -276,9 +298,19 @@ enum SubCommands {
         regex: bool,
         /// 开启模式匹配模式，是正则表达式+自定义变量匹配功能
         ///
-        ///
+        /// 基本语法：在正则表达式里添加用大括号包围的变量名，变量名可以是任意字母的组合，如{var}；但不能与通配符冲突！
+        /// 
+        /// target部分不是正则表达式；在target的变量前加上+表示转换为大写，加-表示转换为小写，如{+var1}、{-var1}
+        /// 
+        /// 例子1： source: "{pre_name}-{other}\.{ext}", target: "{pre_name}.{ext}"，将会在匹配到的文件名中删除"-{other}"
+        /// 
+        /// 例子2： source: "abc{test}\.{ext}", target: "{test}{n:start=1}.{ext}", 将会删除所有abc前缀，并且添加从1开始的序号
         #[arg(short, long, default_value_t = false)]
         pattern: bool,
+
+        /// 开启通配符功能
+        #[arg(short, long, default_value_t = false)]
+        wildcard: bool,
     },
     //todo: 批量移动、压缩文件、整合文件
 }
@@ -338,8 +370,9 @@ fn main() {
             directory,
             regex,
             pattern,
+            wildcard,
         }) => {
-            rename_command(source, target, directory, regex, pattern);
+            rename_command(source, target, directory, regex, pattern, wildcard);
         }
         None => {
             ls_command(

@@ -16,3 +16,7 @@ atty = "0.2.14"
 users = "0.11.0" 
 anyhow = "1.0.98" 
 mime_guess = "2.0.5"
+id3 = "1.16.3" 
+nom-exif = "2.5.4"
+symphonia  = {version = "0.5.4", features = ["all"]}
+rand = "0.9.1"
