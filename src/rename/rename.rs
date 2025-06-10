@@ -55,13 +55,7 @@ pub fn rename_command(
         if !regex {
             let path_entry = Path::new(source.as_str());
             if path_entry.exists() {
-                for p in path_entries {
-                    if let std::result::Result::Ok(p) = p {
-                        if p.file_name().to_string_lossy().contains(source.as_str()) {
-                            return rename_single_file(&p.path(), &target);
-                        }
-                    }
-                }
+                return rename_single_file(&path_entry, &target);
             }
         } else {
             let re = Regex::new(&source)?;
@@ -77,27 +71,19 @@ pub fn rename_command(
     let value_map = if pattern {
         extract_named_groups(&mut paths, &source).unwrap_or(vec![HashMap::new(); paths.len()])
     } else {
-        let path_entries = Path::new(directory.as_str()).read_dir()?;
+        //todo:添加正则表达式的匹配
         let path_entry = Path::new(source.as_str());
         if path_entry.exists() {
-            let mut y = false;
-            for p in path_entries {
-                if let std::result::Result::Ok(p) = p {
-                    if p.file_name().to_string_lossy().contains(source.as_str()) {
-                        paths = vec![p.file_name().to_string_lossy().to_string()];
-                        y = true;
-                    }
-                }
-            }
-            if !y {
-                println!("Can not find the file!");
+            paths = vec![path_entry.file_name().unwrap().to_string_lossy().to_string()];
+        }
+        else{
+            println!("Can not find the file!");
                 return Err(anyhow!("Can not find the file!"));
-            }
         }
         vec![HashMap::new()]
     };
-    // println!("value_map: {:?}", value_map);
-    // println!("paths: {:?}", paths);
+    println!("value_map: {:?}", value_map);
+    println!("paths: {:?}", paths);
     if paths.is_empty() {
         println!("Can not find the file!");
         return Err(anyhow!("Can not find the file!"));
