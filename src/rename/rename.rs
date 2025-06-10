@@ -1,11 +1,13 @@
 use anyhow::{Ok, Result, anyhow};
+use colored::Colorize;
 use fancy_regex::Regex;
 use id3::{Tag, TagLike};
 use nom_exif;
 use rand::Rng;
-use rand::distr::Alphanumeric;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::io::{self, Write};
 use std::path::Path;
+use std::vec;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -26,7 +28,7 @@ pub fn rename_command(
     regex: bool,
     pattern: bool,
     wildcard: bool,
-) {
+) -> Result<bool> {
     // println!("Renaming '{}' to '{}'...", source, target);
     // 处理流程：
     // 将变量存储到列表中
@@ -35,9 +37,141 @@ pub fn rename_command(
     // 将target中的字符串分割成变量和字符的列表
     // 将列表中的变量替换成具体的值，这个值如果不在组里，那就尝试从通配符或者元数据中获取l；并且处理特殊字符
     // 将字符和变量拼接成字符串
+    let path_entries = Path::new(directory.as_str()).read_dir()?;
+    let mut paths = Path::new(directory.as_str())
+        .read_dir()?
+        .map(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .into_os_string()
+                .into_string()
+                .unwrap()
+                .trim_start_matches("./")
+                .to_string()
+        })
+        .collect::<Vec<String>>();
+    if !pattern && !wildcard {
+        if !regex {
+            let path_entry = Path::new(source.as_str());
+            if path_entry.exists() {
+                for p in path_entries {
+                    if let std::result::Result::Ok(p) = p {
+                        if p.file_name().to_string_lossy().contains(source.as_str()) {
+                            return rename_single_file(&p.path(), &target);
+                        }
+                    }
+                }
+            }
+        } else {
+            let re = Regex::new(&source)?;
+            for p in path_entries {
+                if let std::result::Result::Ok(p) = p {
+                    if re.is_match(p.file_name().as_os_str().to_str().unwrap())? {
+                        return rename_single_file(&p.path(), &target);
+                    }
+                }
+            }
+        }
+    }
+    let value_map = if pattern {
+        extract_named_groups(&mut paths, &source).unwrap_or(vec![HashMap::new(); paths.len()])
+    } else {
+        let path_entries = Path::new(directory.as_str()).read_dir()?;
+        let path_entry = Path::new(source.as_str());
+            if path_entry.exists() {
+                for p in path_entries {
+                    if let std::result::Result::Ok(p) = p {
+                        if p.file_name().to_string_lossy().contains(source.as_str()) {
+                            paths = vec![p.file_name().to_string_lossy().to_string()];
+                        }
+                    }
+                }
+            }
+        vec![HashMap::new()]
+        
+    };
+    println!("value_map: {:?}", value_map);
+    println!("paths: {:?}", paths);
+    let res = rename_batch(paths, value_map, target, wildcard);
+    match res {
+        std::result::Result::Ok(_) => {
+            // println!("Rename success");
+            return Ok(true);
+        }
+        std::result::Result::Err(e) => {
+            println!("Rename failed: {}", e);
+            return Err(e);
+        }
+    }
 }
 
-/// 处理最终的批量重命名过程
+fn wait_for_yes_no() -> bool {
+    loop {
+        // 提示用户确认操作
+        print!("确认执行重命名操作吗？(y 确认 / c 取消): ");
+        io::stdout().flush().unwrap(); // 确保立即输出（print! 不会自动刷新）
+
+        // 读取用户输入
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).expect("无法读取输入");
+
+        // 去除换行符并转换为小写
+        let input = input.trim().to_lowercase();
+
+        match input.as_str() {
+            "y" => {
+                return true;
+            }
+            "c" => {
+                return false;
+            }
+            _ => {
+                println!("无效输入，请输入 y 或 c");
+            }
+        }
+    }
+}
+
+fn rename_single_file(path: &Path, target: &str) -> Result<bool> {
+    println!(
+        "将 '{}' 重命名为 '{}'",
+        path.file_name().unwrap().to_string_lossy(),
+        target.green()
+    );
+    let yes_no = wait_for_yes_no();
+    if yes_no {
+        let new_path = path.with_file_name(target);
+        std::fs::rename(path, new_path)?;
+        return Ok(true);
+    }
+    return Ok(false);
+}
+
+fn rename_batch_files(paths: &Vec<String>, target: &Vec<String>) -> Result<bool> {
+    let mut success = true;
+    println!("重命名:");
+    for (i, path) in paths.iter().enumerate() {
+        println!("{} -> {}", path, target[i].green());
+    }
+    let yes_no = wait_for_yes_no();
+    if yes_no {
+        for (i, path) in paths.iter().enumerate() {
+            let new_path = Path::new(path).with_file_name(&target[i]);
+            let res = std::fs::rename(path, new_path);
+            match res {
+                std::result::Result::Ok(_) => {}
+                std::result::Result::Err(e) => {
+                    println!("重命名失败: {}", e);
+                    success = false;
+                }
+            }
+        }
+    }
+    return Ok(success);
+}
+
+/// 处理最终的批量重命名过程，需要开启pattern模式，并且会强制使用regex
 /// # 参数
 /// - `paths`: 路径
 /// - `value_map`: Vec<HashMap<String, String>>, 包含模板变量和值的映射
@@ -51,7 +185,17 @@ pub fn rename_batch(
     target: String,
     wildcard: bool,
 ) -> Result<bool> {
-    let mut final_paths: Vec<String> = Vec::new();
+    if value_map.len() != paths.len() {
+        return Err(anyhow!("Value map length does not match paths length"));
+    }
+    // println!("wildcard: {}", wildcard);
+    // if value_map.is_empty() {
+    //     return Err(anyhow!("Value map is empty"));
+    // }
+    // if value_map[0].is_empty() {
+    //     return Err(anyhow!("Value map is empty"));
+    // }
+    let mut final_paths: Vec<String> = vec![String::new(); paths.len()];
     let mut target_parser: Vec<String> = Vec::new();
     let mut start = 0;
     let mut is_pattern = false;
@@ -95,7 +239,78 @@ pub fn rename_batch(
     if start < target.len() {
         target_parser.push(target.as_str()[start..].to_string());
     }
-    Err(anyhow!("Invalid target: {}", target))
+    for part in target_parser.iter() {
+        let mut part_type = 0; // 0: 普通字符串 1: 变量 2: 元数据 3: 通配符
+        let mut var_name = "";
+        let mut key_name = "";
+        if part.starts_with('{') && part.ends_with('}') {
+            key_name = &part[1..part.len() - 1];
+            let var_name_re = Regex::new(r"\{(\+)?(\w+)(:.+)?\}").unwrap();
+            let var_name_caps = var_name_re.captures(part).unwrap().unwrap();
+            var_name = var_name_caps.get(2).unwrap().as_str();
+            if !value_map.is_empty() && value_map[0].contains_key(var_name) {
+                part_type = 1;
+            } else if get_metadata(Path::new(paths[0].as_str()), part.as_str()).is_some() {
+                part_type = 2;
+            } else if wildcard {
+                part_type = 3;
+            } else {
+                return Err(anyhow!("Invalid target: {}, error \"{}\"", target, part));
+            }
+        }
+        match part_type {
+            0 => {
+                for (i, _path) in paths.iter().enumerate() {
+                    final_paths[i].push_str(&part);
+                }
+            }
+            1 => {
+                let mut value_vec = vec![];
+                for (i, _path) in paths.iter().enumerate() {
+                    let value = value_map[i].get(var_name).unwrap();
+                    // final_paths[i].push_str(&value);
+                    value_vec.push(value.clone());
+                }
+                let final_value_vec = process_special_symbols(&value_vec, &key_name.to_string())?;
+                for (i, _path) in paths.iter().enumerate() {
+                    final_paths[i].push_str(&final_value_vec[i]);
+                }
+            }
+            2 => {
+                let mut value_vec = vec![];
+                for (_i, path) in paths.iter().enumerate() {
+                    let value = get_metadata(Path::new(path.as_str()), part.as_str()).unwrap();
+                    // final_paths[i].push_str(&value);
+                    value_vec.push(value.clone());
+                }
+                let final_value_vec = process_special_symbols(&value_vec, &key_name.to_string())?;
+                for (i, _path) in paths.iter().enumerate() {
+                    final_paths[i].push_str(&final_value_vec[i]);
+                }
+            }
+            3 => {
+                let wildcards = wildcard_to_target(&paths, part)?;
+                // println!("wildcards: {:?}", wildcards);
+                let final_wildcards = if part.contains("{n:") {
+                    wildcards
+                } else {
+                    process_special_symbols(&wildcards, &key_name.to_string())?
+                };
+                for (i, _path) in paths.iter().enumerate() {
+                    final_paths[i].push_str(&final_wildcards[i]);
+                }
+            }
+            _ => {
+                return Err(anyhow!("Invalid target: {}, error \"{}\"", target, part));
+            }
+        }
+        part_type = 0;
+        _ = part_type;
+    }
+    // for (path, final_path) in paths.iter().zip(final_paths.iter()) {
+    //     println!("Renaming '{}' to '{}'", path, final_path);
+    // }
+    rename_batch_files(&paths, &final_paths)
 }
 
 /// 使用命名捕获组批量处理扩展正则表达式
@@ -105,7 +320,7 @@ pub fn rename_batch(
 /// # 返回值
 /// 包含捕获键值对的 HashMap 列表，每个元素对应一个输入
 pub fn extract_named_groups(
-    inputs: &Vec<String>,
+    inputs: &mut Vec<String>,
     ext_regex: &String,
 ) -> Option<Vec<HashMap<String, String>>> {
     // 预编译正则表达式（只执行一次）
@@ -118,7 +333,7 @@ pub fn extract_named_groups(
             .replace_all(ext_regex.as_str(), |caps: &fancy_regex::Captures| {
                 let var_name = caps.get(1).unwrap().as_str();
                 var_names.push(var_name.to_string());
-                format!("(?P<{}>.*)", var_name)
+                format!("(?P<{}>.+)", var_name)
             })
             .to_string();
 
@@ -126,20 +341,37 @@ pub fn extract_named_groups(
         let re = Regex::new(&final_regex).ok()?;
         (re, var_names)
     };
-
+    let mut filtered_inputs: Vec<String> = Vec::new();
     // 批量处理输入
-    let mut results = Vec::with_capacity(inputs.len());
-    for input in inputs {
+    let mut can_add = false;
+    let mut results = vec![];
+    for input in inputs.iter() {
         let mut groups = HashMap::new();
         if let std::result::Result::Ok(Some(caps)) = re.captures(input.as_str()) {
             for name in &var_names {
                 if let Some(value) = caps.name(name) {
                     groups.insert(name.clone(), value.as_str().to_string());
+                    can_add = true;
+                } else {
+                    filtered_inputs.push(input.clone());
+                    can_add = false;
+                    // println!("Invalid input: {}", input);
+                    break;
                 }
             }
+        } else {
+            filtered_inputs.push(input.clone());
+            can_add = false;
         }
-        results.push(groups);
+        if can_add {
+            // println!("Input: {}, Groups: {:?}", input, groups);
+            results.push(groups);
+            can_add = false;
+        }
     }
+    inputs.retain(|x| !filtered_inputs.contains(x));
+    // println!("results: {:?}", results);
+    // println!("inputs: {:?}", inputs);
 
     Some(results)
 }
@@ -222,35 +454,42 @@ pub fn wildcard_to_target(paths: &Vec<String>, pattern: &String) -> Result<Vec<S
         }
         if let Some(cap) = re_radix.captures(n)? {
             radix = cap[1].parse::<usize>()?;
-            if radix != 10 {
-                reverse = false;
-            }
         }
-        let mut res: Vec<String> = (start..paths.len())
+        let total_items = paths.len();
+        let end = start + total_items * step;
+        let mut res: Vec<String> = (start..end)
             .step_by(step)
+            .take(total_items)
             .map(|i| i.to_string())
             .collect();
+        // let mut res: Vec<String> = (start..(paths.len() + start*step))
+        //     .step_by(step)
+        //     .map(|i| i.to_string())
+        //     .collect();
         if reverse {
+            // println!("reverse: {:?}", res);
             res.reverse();
         }
         if radix != 10 {
             res = res
                 .iter()
                 .map(|i| {
-                    let num = i.parse::<usize>().unwrap();
-                    let hex_prefix = match radix {
-                        16 => "0x",
-                        _ => "",
+                    let num = i.parse::<u32>().unwrap();
+                    let (prefix, base_str) = match radix {
+                        16 => ("0x", format_radix(num, 16).unwrap()),
+                        8 => ("0o", format_radix(num, 8).unwrap()),
+                        2 => ("0b", format_radix(num, 2).unwrap()),
+                        _ => ("", format_radix(num, radix.try_into().unwrap()).unwrap()),
                     };
-                    let radix_str = format!("{:x}", num);
-                    let padded = format!("{}{:0>width$}", hex_prefix, radix_str, width = width);
-                    padded
+
+                    let padding = width;
+                    format!("{}{:0>padding$}", prefix, base_str, padding = padding)
                 })
                 .collect();
         } else if width != 0 {
             res = res
                 .iter()
-                .map(|i| format!("{:0width$}", i, width = width))
+                .map(|i| format!("{:0>width$}", i, width = width))
                 .collect();
         }
         return Ok(res);
@@ -260,16 +499,52 @@ pub fn wildcard_to_target(paths: &Vec<String>, pattern: &String) -> Result<Vec<S
     if let Some(rand_part) = cont.strip_prefix("rand:") {
         let len = rand_part.parse::<usize>().unwrap_or(6);
         let mut rng = rand::rng();
+        let max_unique = 10usize.pow(len as u32);
+        let check_uniqueness = paths.len() <= max_unique;
+
+        let mut used_numbers = HashSet::with_capacity(paths.len());
         return Ok((0..paths.len())
             .map(|_| {
-                (0..len)
-                    .map(|_| rng.sample(Alphanumeric) as char)
-                    .collect::<String>()
+                if check_uniqueness {
+                    loop {
+                        let num_str: String = (0..len)
+                            .map(|_| rng.random_range(0..=9).to_string())
+                            .collect();
+                        if used_numbers.insert(num_str.clone()) {
+                            break num_str;
+                        }
+                    }
+                } else {
+                    (0..len)
+                        .map(|_| rng.random_range(0..=9).to_string())
+                        .collect()
+                }
             })
             .collect());
     }
 
     Ok(vec![])
+}
+
+fn format_radix(mut x: u32, radix: u32) -> Result<String> {
+    if !(2..=36).contains(&radix) {
+        return Err(anyhow!("Radix {} out of range (2-36)", radix));
+    }
+
+    if x == 0 {
+        return Ok(x.to_string());
+    }
+
+    let mut result = Vec::new();
+    let digits: Vec<char> = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars().collect();
+
+    while x > 0 {
+        let m = (x % radix) as usize;
+        result.push(digits[m]);
+        x /= radix;
+    }
+
+    Ok(result.into_iter().rev().collect())
 }
 
 /// 处理特殊符号：
@@ -283,8 +558,10 @@ fn process_special_symbols(sources: &Vec<String>, pattern: &String) -> Result<Ve
 
     // 处理大小写转换
     if let Some(_case_target) = pattern.strip_prefix('+') {
+        // println!("大写");
         results = results.iter().map(|s| s.to_uppercase()).collect();
     } else if let Some(_case_target) = pattern.strip_prefix('-') {
+        // println!("小写");
         results = results.iter().map(|s| s.to_lowercase()).collect();
     }
 
@@ -319,6 +596,66 @@ fn process_special_symbols(sources: &Vec<String>, pattern: &String) -> Result<Ve
     }
 
     Ok(results)
+}
+
+/// 获取元数据
+/// # 参数
+/// - `path`: 文件路径
+/// - `key`: 元数据键，格式为 `{key_name}`
+/// # 返回值
+/// 返回 `Result<String, Error>`，包含请求的元数据值或错误
+fn get_metadata(path: &Path, key: &str) -> Option<String> {
+    let re = Regex::new(r"^\{(.+):.+\}$").unwrap();
+    let cap = re.captures(key);
+    match cap {
+        std::result::Result::Ok(Some(cap)) => {
+            let key_name = cap.get(1).unwrap().as_str();
+            match key_name {
+                "audio" => {
+                    let audio_md = get_audio_metadata(path, key);
+                    match audio_md {
+                        std::result::Result::Ok(md) => {
+                            return Some(md);
+                        }
+                        std::result::Result::Err(_) => {
+                            return None;
+                        }
+                    }
+                }
+                "video" => {
+                    let video_md = get_video_metadata(path, key);
+                    match video_md {
+                        std::result::Result::Ok(md) => {
+                            return Some(md);
+                        }
+                        std::result::Result::Err(_) => {
+                            return None;
+                        }
+                    }
+                }
+                "image" => {
+                    let image_md = get_image_metadata(path, key);
+                    match image_md {
+                        std::result::Result::Ok(md) => {
+                            return Some(md);
+                        }
+                        std::result::Result::Err(_) => {
+                            return None;
+                        }
+                    }
+                }
+                _ => {
+                    return None;
+                }
+            }
+        }
+        std::result::Result::Ok(None) => {
+            return None;
+        }
+        std::result::Result::Err(_) => {
+            return None;
+        }
+    }
 }
 
 /// 获取音乐元数据

@@ -238,52 +238,30 @@ enum SubCommands {
         group: Option<String>,
     },
     /// 批量重命名
-    ///
     /// 支持正则表达式、多种高级模板匹配
-    ///
     /// 默认通配符:
-    /// 
     /// - {source}: 整个文件名，包含前缀和后缀
-    /// 
     /// - {prefix}: 文件名前缀，比如 "example.txt" 中的 "example"
-    /// 
     /// - {suffix}: 文件名后缀，比如 "example.txt" 中的 "txt"，"abc.c.d"中的"c.d"
-    /// 
     /// - { n }: 序号
-    /// 
     ///     - {n:start=1}: 起始值为1, 如1, 2...**默认起始值为1**
-    /// 
     ///     - {n:width=2}: 宽度为2，不足2位用0填充, 如001, 002...**默认宽度为0** <!-- 十六进制需要在0x后面补0-->
-    /// 
     ///     - {n:step=2}: 步长为2, 如1, 3, 5...**默认步长为1；步长只能是正数**
-    /// 
     ///     - {n:radix=16}: 进制为16, 如0x01, 0x02...**默认进制为10**
-    /// 
-    ///     - {n:reverse=10}: 反向, 并从10开始, 如10, 9, 8...**默认不反向**
-    /// 
-    /// - {+p}: 将p指定的内容转换成大写，如{+source}->ABC.TXT
-    /// 
-    /// - {-p}: 将p指定的内容转换成小写，如{-source}->abc.txt
-    /// 
-    /// - {p:l}: 对p指定的内容进行截取，l为截取的长度，如{source:3}->abc；只对{source}、{prefix}、{suffix}有效
-    /// 
-    /// - {p:s:l}: 对p指定的内容进行截取，l为截取的长度，s为起始位置，如{source:1:3}->bca；只对{source}、{prefix}、{suffix}有效
-    /// 
-    /// - {p:s-e}: 对p指定的内容进行截取，s为起始位置，e为结束位置，如{source:1-3}->bca；只对{source}、{prefix}、{suffix}有效
-    /// 
+    ///     - {n:reverse}: 反向, 如10, 9, 8...**默认不反向**
     /// - {rand:n}: 生成随机数，n为生成的随机数的长度，如{rand:3}->123 <!-- 需要保证不重复-->
-    /// 
     /// - 元数据：
-    /// 
     ///     - {image:width, height, make, model, create_date, location, ISO, 
     ///     aperture, exposure_time, focal_length, 
     ///     orientation, flash}: 获取图片的元数据，如{exif:width}->1920
-    /// 
     ///     - {audio:artist, album, title, year, genre, duration, disc, date_recorded, date_released}: 获取音乐的元数据，如{music:artist}->Artist
-    /// 
     ///     - {video:width, height, duration, bitrate, frame_rate, codec, resolution, aspect_ratio}: 获取视频的元数据，如{video:width}->1920
-    /// 
-    ///     - 
+    /// 特殊功能(只对模板或通配符有效)： 
+    /// - {+p}: 将p指定的内容转换成大写，如{+source}->ABC.TXT
+    /// - {-p}: 将p指定的内容转换成小写，如{-source}->abc.txt
+    /// - {p:l}: 对p指定的内容进行截取，l为截取的长度，如{source:3}->abc；只对{source}、{prefix}、{suffix}有效
+    /// - {p:s:l}: 对p指定的内容进行截取，l为截取的长度，s为起始位置，如{source:1:3}->bca；只对{source}、{prefix}、{suffix}有效
+    /// - {p:s-e}: 对p指定的内容进行截取，s为起始位置，e为结束位置，如{source:1-3}->bca；只对{source}、{prefix}、{suffix}有效
     /// 如果不开启模板匹配或通配符功能，就无法批量重命名
     Rename {
         /// 要重命名的文件路径列表
@@ -372,7 +350,7 @@ fn main() {
             pattern,
             wildcard,
         }) => {
-            rename_command(source, target, directory, regex, pattern, wildcard);
+            let _ = rename_command(source, target, directory, regex, pattern, wildcard);
         }
         None => {
             ls_command(
