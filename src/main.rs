@@ -275,13 +275,9 @@ enum SubCommands {
         #[arg(short, long, default_value_t = false)]
         regex: bool,
         /// 开启模式匹配模式，是正则表达式+自定义变量匹配功能
-        ///
         /// 基本语法：在正则表达式里添加用大括号包围的变量名，变量名可以是任意字母的组合，如{var}；但不能与通配符冲突！
-        /// 
         /// target部分不是正则表达式；在target的变量前加上+表示转换为大写，加-表示转换为小写，如{+var1}、{-var1}
-        /// 
         /// 例子1： source: "{pre_name}-{other}\.{ext}", target: "{pre_name}.{ext}"，将会在匹配到的文件名中删除"-{other}"
-        /// 
         /// 例子2： source: "abc{test}\.{ext}", target: "{test}{n:start=1}.{ext}", 将会删除所有abc前缀，并且添加从1开始的序号
         #[arg(short, long, default_value_t = false)]
         pattern: bool,
