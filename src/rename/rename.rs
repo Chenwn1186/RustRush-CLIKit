@@ -79,20 +79,29 @@ pub fn rename_command(
     } else {
         let path_entries = Path::new(directory.as_str()).read_dir()?;
         let path_entry = Path::new(source.as_str());
-            if path_entry.exists() {
-                for p in path_entries {
-                    if let std::result::Result::Ok(p) = p {
-                        if p.file_name().to_string_lossy().contains(source.as_str()) {
-                            paths = vec![p.file_name().to_string_lossy().to_string()];
-                        }
+        if path_entry.exists() {
+            let mut y = false;
+            for p in path_entries {
+                if let std::result::Result::Ok(p) = p {
+                    if p.file_name().to_string_lossy().contains(source.as_str()) {
+                        paths = vec![p.file_name().to_string_lossy().to_string()];
+                        y = true;
                     }
                 }
             }
+            if !y {
+                println!("Can not find the file!");
+                return Err(anyhow!("Can not find the file!"));
+            }
+        }
         vec![HashMap::new()]
-        
     };
-    println!("value_map: {:?}", value_map);
-    println!("paths: {:?}", paths);
+    // println!("value_map: {:?}", value_map);
+    // println!("paths: {:?}", paths);
+    if paths.is_empty() {
+        println!("Can not find the file!");
+        return Err(anyhow!("Can not find the file!"));
+    }
     let res = rename_batch(paths, value_map, target, wildcard);
     match res {
         std::result::Result::Ok(_) => {
