@@ -21,7 +21,7 @@ use crate::ls::ls_command;
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// 要列出内容的目录路径，默认为当前目录
-    /// todo: - 是文件夹，*是可执行文件，
+    // // todo: - 是文件夹，*是可执行文件，
     #[arg(default_value = ".")]
     directory: PathBuf,
 
@@ -30,7 +30,6 @@ struct Args {
     author: bool,
 
     /// 显示详细信息
-    ///
     /// 显示的条目：permission, modified, file_name, size
     #[arg(short, long)]
     long: bool,
@@ -285,6 +284,28 @@ enum SubCommands {
         /// 开启通配符功能
         #[arg(short, long, default_value_t = false)]
         wildcard: bool,
+
+        /// 开启替换功能，和普通的搜索替换功能一致
+        #[arg(short = 'R', long, default_value_t = false)]
+        replace: bool,
+
+        // /// 递归深度，默认为1
+        // #[arg(short = 'd', long, default_value_t = 1)]
+        // recursive_depth: usize,
+
+        /// 重命名后移动到新文件夹
+        #[arg(short = 'm', long)]
+        move_to: Option<String>,
+
+        // /// 重命名后复制到新文件夹
+        // #[arg(short = 'c', long)]
+        // copy_to: Option<String>,
+
+        /// 显示详细信息，如变量对应的实际值等
+        #[arg(short = 'i', long, default_value_t = false)]
+        info: bool,
+
+        
     },
     //todo: 批量移动、压缩文件、整合文件
 }
@@ -345,8 +366,19 @@ fn main() {
             regex,
             pattern,
             wildcard,
+            move_to,
+            info,
+            replace,
         }) => {
-            let _ = rename_command(source, target, directory, regex, pattern, wildcard);
+            let _ = rename_command(
+                source,
+                target,
+                directory,
+                regex,
+                pattern,
+                wildcard,
+                move_to
+            );
         }
         None => {
             ls_command(

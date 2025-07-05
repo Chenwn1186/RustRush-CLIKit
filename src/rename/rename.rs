@@ -28,6 +28,7 @@ pub fn rename_command(
     regex: bool,
     pattern: bool,
     wildcard: bool,
+    move_to: Option<String>,
 ) -> Result<bool> {
     // println!("Renaming '{}' to '{}'...", source, target);
     // 处理流程：
@@ -37,7 +38,13 @@ pub fn rename_command(
     // 将target中的字符串分割成变量和字符的列表
     // 将列表中的变量替换成具体的值，这个值如果不在组里，那就尝试从通配符或者元数据中获取l；并且处理特殊字符
     // 将字符和变量拼接成字符串
-    let path_entries = Path::new(directory.as_str()).read_dir()?;
+    let path_entries = match Path::new(directory.as_str()).read_dir() {
+        std::result::Result::Ok(path_entries) => path_entries,
+        Err(e) => {
+            println!("{}", e);
+            return Err(anyhow!(e));
+        }
+    };
     let mut paths = Path::new(directory.as_str())
         .read_dir()?
         .map(|entry| {
@@ -51,35 +58,54 @@ pub fn rename_command(
                 .to_string()
         })
         .collect::<Vec<String>>();
+
+    // 通配符和模板匹配都不开启的情况，此时只需要判断source对应的文件是否存在即可
     if !pattern && !wildcard {
         if !regex {
             let path_entry = Path::new(source.as_str());
             if path_entry.exists() {
-                return rename_single_file(&path_entry, &target);
+                return rename_single_file(&path_entry, &target, move_to);
             }
         } else {
             let re = Regex::new(&source)?;
             for p in path_entries {
                 if let std::result::Result::Ok(p) = p {
                     if re.is_match(p.file_name().as_os_str().to_str().unwrap())? {
-                        return rename_single_file(&p.path(), &target);
+                        return rename_single_file(&p.path(), &target, move_to);
                     }
                 }
             }
         }
     }
+
     let value_map = if pattern {
+        // 为模板变量赋值
         extract_named_groups(&mut paths, &source).unwrap_or(vec![HashMap::new(); paths.len()])
     } else {
-        //todo:添加正则表达式的匹配
-        let path_entry = Path::new(source.as_str());
-        if path_entry.exists() {
-            paths = vec![path_entry.file_name().unwrap().to_string_lossy().to_string()];
-        }
-        else{
-            println!("Can not find the file!");
+        /////todo:添加正则表达式的匹配
+        if regex {
+            let path_entry = Path::new(source.as_str());
+            if path_entry.exists() {
+                paths = vec![
+                    path_entry
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string(),
+                ];
+            } else {
+                println!("Can not find the file!");
                 return Err(anyhow!("Can not find the file!"));
+            }
+        } else {
+            let re = Regex::new(&source).unwrap();
+            paths = paths
+                .iter()
+                .filter(|p| re.is_match(p).unwrap())
+                .map(|p| p.to_string())
+                .collect();
         }
+
         vec![HashMap::new()]
     };
     println!("value_map: {:?}", value_map);
@@ -88,7 +114,7 @@ pub fn rename_command(
         println!("Can not find the file!");
         return Err(anyhow!("Can not find the file!"));
     }
-    let res = rename_batch(paths, value_map, target, wildcard);
+    let res = rename_batch(paths, value_map, target, wildcard, move_to);
     match res {
         std::result::Result::Ok(_) => {
             // println!("Rename success");
@@ -128,34 +154,72 @@ fn wait_for_yes_no() -> bool {
     }
 }
 
-fn rename_single_file(path: &Path, target: &str) -> Result<bool> {
+fn rename_single_file(path: &Path, target: &str, move_to: Option<String>) -> Result<bool> {
     println!(
         "将 '{}' 重命名为 '{}'",
         path.file_name().unwrap().to_string_lossy(),
         target.green()
     );
+    if move_to.is_some() {
+        let move_to_path = Path::new(move_to.as_ref().unwrap());
+        if !move_to_path.exists() {
+            println!("目标文件夹不存在: {}", move_to_path.display());
+            return Err(anyhow!("目标文件夹不存在: {}", move_to_path.display()));
+        } else {
+            println!("并移动到目录: {}", move_to_path.display());
+        }
+    }
     let yes_no = wait_for_yes_no();
     if yes_no {
         let new_path = path.with_file_name(target);
-        std::fs::rename(path, new_path)?;
+        std::fs::rename(path, &new_path)?;
+        let move_to_path = Path::new(move_to.as_ref().unwrap()).with_file_name(target);
+        if move_to_path.exists() {
+            println!("目标文件夹已存在: {}", move_to_path.display());
+            return Err(anyhow!("目标文件夹已存在: {}", move_to_path.display()));
+        }
+        std::fs::copy(&new_path, move_to_path)?;
+        std::fs::remove_file(new_path)?;
         return Ok(true);
     }
     return Ok(false);
 }
 
-fn rename_batch_files(paths: &Vec<String>, target: &Vec<String>) -> Result<bool> {
+fn rename_batch_files(
+    paths: &Vec<String>,
+    target: &Vec<String>,
+    move_to: Option<String>,
+) -> Result<bool> {
     let mut success = true;
     println!("重命名:");
     for (i, path) in paths.iter().enumerate() {
         println!("{} -> {}", path, target[i].green());
     }
+    if move_to.is_some() {
+        let move_to_path = Path::new(move_to.as_ref().unwrap());
+        if !move_to_path.exists() {
+            println!("目标文件夹不存在: {}", move_to_path.display());
+            return Err(anyhow!("目标文件夹不存在: {}", move_to_path.display()));
+        } else {
+            println!("并移动到目录: {}", move_to_path.display());
+        }
+    }
     let yes_no = wait_for_yes_no();
     if yes_no {
         for (i, path) in paths.iter().enumerate() {
             let new_path = Path::new(path).with_file_name(&target[i]);
-            let res = std::fs::rename(path, new_path);
+            let res = std::fs::rename(path, &new_path);
             match res {
-                std::result::Result::Ok(_) => {}
+                std::result::Result::Ok(_) => {
+                    let move_to_path =
+                        Path::new(move_to.as_ref().unwrap()).with_file_name(&target[i]);
+                    if move_to_path.exists() {
+                        println!("目标文件夹已存在: {}", move_to_path.display());
+                        return Err(anyhow!("目标文件夹已存在: {}", move_to_path.display()));
+                    }
+                    std::fs::copy(&new_path, move_to_path)?;
+                    std::fs::remove_file(new_path)?;
+                }
                 std::result::Result::Err(e) => {
                     println!("重命名失败: {}", e);
                     success = false;
@@ -179,6 +243,7 @@ pub fn rename_batch(
     value_map: Vec<HashMap<String, String>>,
     target: String,
     wildcard: bool,
+    move_to: Option<String>,
 ) -> Result<bool> {
     if value_map.len() != paths.len() {
         return Err(anyhow!("Value map length does not match paths length"));
@@ -256,7 +321,8 @@ pub fn rename_batch(
         match part_type {
             0 => {
                 for (i, _path) in paths.iter().enumerate() {
-                    final_paths[i].push_str(&part);
+                    let final_part = part.replace("\\{", "{").replace("\\{", "}");
+                    final_paths[i].push_str(&final_part);
                 }
             }
             1 => {
@@ -305,7 +371,7 @@ pub fn rename_batch(
     // for (path, final_path) in paths.iter().zip(final_paths.iter()) {
     //     println!("Renaming '{}' to '{}'", path, final_path);
     // }
-    rename_batch_files(&paths, &final_paths)
+    rename_batch_files(&paths, &final_paths, move_to)
 }
 
 /// 使用命名捕获组批量处理扩展正则表达式
@@ -593,6 +659,7 @@ fn process_special_symbols(sources: &Vec<String>, pattern: &String) -> Result<Ve
     Ok(results)
 }
 
+//todo: 添加file部分的元数据
 /// 获取元数据
 /// # 参数
 /// - `path`: 文件路径
