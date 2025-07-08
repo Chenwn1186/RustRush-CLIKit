@@ -200,6 +200,7 @@ enum SubCommands {
         /// special_datetime: 特殊时间，如today、yesterday、this_month、last_month、this_year、last_year
         /// 范围可以用逗号分隔以取并集，例如：2021:2022y,10m表示在2021年到2022年或者在10月份
         /// 单个时间范围内的不同时间单位用“-”分隔，例如：2021y-7:8m-10:20d-:10h表示在2021年7月或8月的10日到20日，并且在00:00到10:00之间的时间范围
+        /// 可以用括号来约定时间点，例如: (2021y-7m-10d-0h):(2021y-8m-20d-10h)表示在2021年7月10日00:00到2021年8月20日10:00之间的时间范围
         #[arg(short = 'm', long)]
         modified: Option<String>,
 
@@ -249,17 +250,17 @@ enum SubCommands {
     ///     - {n:reverse}: 将生成的列表反向, **默认不反向, 并且不是十进制时无效**
     /// - {rand:n}: 生成随机数，n为生成的随机数的长度，如{rand:3}->123 <!-- 尽量保证不重复-->
     /// - 元数据：
-    ///     - {image:width, height, make, model, create_date, location, ISO, 
-    ///     aperture, exposure_time, focal_length, 
+    ///     - {image:width, height, make, model, create_date, location, ISO,
+    ///     aperture, exposure_time, focal_length,
     ///     orientation, flash}: 获取图片的元数据，如{exif:width}->1920
     ///     - {audio:artist, album, title, year, genre, duration, disc, date_recorded, date_released}: 获取音乐的元数据，如{music:artist}->Artist
     ///     - {video:width, height, duration, bitrate, frame_rate, codec, resolution, aspect_ratio}: 获取视频的元数据，如{video:width}->1920
-    /// 特殊功能(只对模板或通配符有效)： 
+    /// 特殊功能(只对模板或通配符有效)：
     /// - {+p}: 将p指定的内容转换成大写，如{+source}->ABC.TXT
     /// - {-p}: 将p指定的内容转换成小写，如{-source}->abc.txt
-    /// - {p:l}: 对p指定的内容进行截取，l为截取的长度，如{source:3}->abc；只对{source}、{prefix}、{suffix}有效
-    /// - {p:s:l}: 对p指定的内容进行截取，l为截取的长度，s为起始位置，如{source:1:3}->bca；只对{source}、{prefix}、{suffix}有效
-    /// - {p:s-e}: 对p指定的内容进行截取，s为起始位置，e为结束位置，如{source:1-3}->bca；只对{source}、{prefix}、{suffix}有效
+    /// - {p:l}: 对p指定的内容进行截取，l为截取的长度，如{source:3}->abc；
+    /// - {p:s:l}: 对p指定的内容进行截取，l为截取的长度，s为起始位置，如{source:1:3}->bca；
+    /// - {p:s-e}: 对p指定的内容进行截取，s为起始位置，e为结束位置，如{source:1-3}->bca；
     /// 如果不开启模板匹配或通配符功能，就无法批量重命名
     Rename {
         /// 要重命名的文件路径列表
@@ -284,6 +285,7 @@ enum SubCommands {
         #[arg(short, long, default_value_t = false)]
         wildcard: bool,
 
+        //todo:
         /// 开启替换功能，和普通的搜索替换功能一致
         #[arg(short = 'R', long, default_value_t = false)]
         replace: bool,
@@ -291,7 +293,6 @@ enum SubCommands {
         // /// 递归深度，默认为1
         // #[arg(short = 'd', long, default_value_t = 1)]
         // recursive_depth: usize,
-
         /// 重命名后移动到新文件夹
         #[arg(short = 'm', long)]
         move_to: Option<String>,
@@ -300,11 +301,10 @@ enum SubCommands {
         // #[arg(short = 'c', long)]
         // copy_to: Option<String>,
 
+        //todo:
         /// 显示详细信息，如变量对应的实际值等
         #[arg(short = 'i', long, default_value_t = false)]
         info: bool,
-
-        
     },
     //todo: 批量移动、压缩文件、整合文件
 }
@@ -369,15 +369,7 @@ fn main() {
             info,
             replace,
         }) => {
-            let _ = rename_command(
-                source,
-                target,
-                directory,
-                regex,
-                pattern,
-                wildcard,
-                move_to
-            );
+            let _ = rename_command(source, target, directory, regex, pattern, wildcard, move_to);
         }
         None => {
             ls_command(
