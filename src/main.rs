@@ -13,7 +13,7 @@ mod ls;
 use crate::ls::ls_command;
 /// **功能**：
 /// 1. 列出目录内容：支持彩色突出显示不同文件/文件夹类型，支持按大小、修改时间等排序
-/// 2. 搜索文件、文件夹和文件内容：支持正则表达式
+/// 2. 搜索文件、文件夹和文件内容：支持正则表达式（含Perl扩展）
 /// 3. 合并文本文件
 /// 4. 打开文本文件并高亮显示前 n 行
 /// 5. 批量重命名：支持正则表达式、多种高级模板匹配
@@ -21,7 +21,6 @@ use crate::ls::ls_command;
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// 要列出内容的目录路径，默认为当前目录
-    // // todo: - 是文件夹，*是可执行文件，
     #[arg(default_value = ".")]
     directory: PathBuf,
 
@@ -242,13 +241,13 @@ enum SubCommands {
     /// - {source}: 整个文件名，包含前缀和后缀
     /// - {prefix}: 文件名前缀，比如 "example.txt" 中的 "example"
     /// - {suffix}: 文件名后缀，比如 "example.txt" 中的 "txt"，"abc.c.d"中的"c.d"
-    /// - { n }: 序号
+    /// - { n }: 序号，从0开始，如0, 1, 2...
     ///     - {n:start=1}: 起始值为1, 如1, 2...**默认起始值为1**
     ///     - {n:width=2}: 宽度为2，不足2位用0填充, 如001, 002...**默认宽度为0** <!-- 十六进制需要在0x后面补0-->
     ///     - {n:step=2}: 步长为2, 如1, 3, 5...**默认步长为1；步长只能是正数**
     ///     - {n:radix=16}: 进制为16, 如0x01, 0x02...**默认进制为10**
-    ///     - {n:reverse}: 反向, 如10, 9, 8...**默认不反向**
-    /// - {rand:n}: 生成随机数，n为生成的随机数的长度，如{rand:3}->123 <!-- 需要保证不重复-->
+    ///     - {n:reverse}: 将生成的列表反向, **默认不反向, 并且不是十进制时无效**
+    /// - {rand:n}: 生成随机数，n为生成的随机数的长度，如{rand:3}->123 <!-- 尽量保证不重复-->
     /// - 元数据：
     ///     - {image:width, height, make, model, create_date, location, ISO, 
     ///     aperture, exposure_time, focal_length, 
